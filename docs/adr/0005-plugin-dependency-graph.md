@@ -21,9 +21,8 @@ do not block activation and cannot create a hard cycle. If a required plugin
 fails during activation, its dependants are skipped. Unload remains the exact
 reverse of successful activation order.
 
-The initial contract does not include plugin version ranges. Plugin versions are
-informational until semantic-version validation and a compatibility policy are
-defined together.
+The version policy was subsequently defined by ADR 0006. Dependency edges may
+carry its simple minimum-version constraint; arbitrary ranges remain excluded.
 
 ## Consequences
 

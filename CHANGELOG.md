@@ -26,3 +26,5 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Plugin development guide and dependency-resolution architecture decision.
 - Required and optional plugin-ID dependencies with deterministic graph-based
   activation, cycle detection, and failure propagation.
+- Simple `MAJOR.MINOR.PATCH` plugin versions and inclusive minimum-version
+  requirements, without a range-expression language.

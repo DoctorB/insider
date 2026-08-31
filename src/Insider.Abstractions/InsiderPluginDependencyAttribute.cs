@@ -16,7 +16,25 @@ public sealed class InsiderPluginDependencyAttribute : Attribute
         Optional = optional;
     }
 
+    public InsiderPluginDependencyAttribute(string id, string minimumVersion, bool optional = false)
+        : this(id, optional)
+    {
+        MinimumVersion = RequireValue(minimumVersion, nameof(minimumVersion));
+    }
+
     public string Id { get; }
 
+    public string? MinimumVersion { get; }
+
     public bool Optional { get; }
+
+    private static string RequireValue(string value, string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException("The value cannot be empty.", parameterName);
+        }
+
+        return value.Trim();
+    }
 }

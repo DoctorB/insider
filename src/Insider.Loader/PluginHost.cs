@@ -136,6 +136,14 @@ public sealed class PluginHost : IDisposable
             return null;
         }
 
+        if (!PluginVersion.TryParse(metadata.Version, out var pluginVersion))
+        {
+            results.Add(Fail(
+                source,
+                $"Plugin '{metadata.Id}' has invalid version '{metadata.Version}'. Expected MAJOR.MINOR.PATCH using non-negative integers."));
+            return null;
+        }
+
         var dependencyAttributes = pluginType
             .GetCustomAttributes<InsiderPluginDependencyAttribute>(inherit: false)
             .OrderBy(attribute => attribute.Id, StringComparer.OrdinalIgnoreCase)
@@ -149,10 +157,32 @@ public sealed class PluginHost : IDisposable
             return null;
         }
 
-        var dependencies = Array.AsReadOnly(dependencyAttributes
-            .Select(attribute => new PluginDependencyDescriptor(attribute.Id, attribute.Optional))
-            .ToArray());
-        return new PluginCandidate(pluginType, metadata, dependencies, source);
+        var dependencies = new List<PluginDependencyDescriptor>();
+        foreach (var dependencyAttribute in dependencyAttributes)
+        {
+            PluginVersion? minimumVersion = null;
+            if (dependencyAttribute.MinimumVersion is not null)
+            {
+                if (!PluginVersion.TryParse(dependencyAttribute.MinimumVersion, out var parsedMinimumVersion))
+                {
+                    results.Add(Fail(
+                        source,
+                        $"Plugin '{metadata.Id}' declares invalid minimum version '{dependencyAttribute.MinimumVersion}' for '{dependencyAttribute.Id}'. " +
+                        "Expected MAJOR.MINOR.PATCH using non-negative integers."));
+                    return null;
+                }
+
+                minimumVersion = parsedMinimumVersion;
+            }
+
+            dependencies.Add(new PluginDependencyDescriptor(
+                dependencyAttribute.Id,
+                dependencyAttribute.MinimumVersion,
+                minimumVersion,
+                dependencyAttribute.Optional));
+        }
+
+        return new PluginCandidate(pluginType, metadata, pluginVersion, dependencies.AsReadOnly(), source);
     }
 
     private PluginLoadResult Activate(PluginCandidate candidate)
@@ -163,14 +193,16 @@ public sealed class PluginHost : IDisposable
         }
 
         var unavailable = candidate.Dependencies
-            .Where(dependency => !dependency.Optional && !_plugins.ContainsKey(dependency.Id))
-            .Select(dependency => dependency.Id)
+            .Where(dependency => !dependency.Optional)
+            .Select(GetLoadedRequirementFailure)
+            .Where(failure => failure is not null)
+            .Cast<string>()
             .ToArray();
         if (unavailable.Length > 0)
         {
             return Fail(
                 candidate.Source,
-                $"Plugin '{candidate.Metadata.Id}' was not loaded because required plugin dependencies did not load: {string.Join(", ", unavailable)}.");
+                $"Plugin '{candidate.Metadata.Id}' was not loaded because required plugin dependencies are unavailable: {string.Join(", ", unavailable)}.");
         }
 
         IInsiderPlugin? instance = null;
@@ -282,11 +314,10 @@ public sealed class PluginHost : IDisposable
                 {
                     Candidate = candidate,
                     Missing = candidate.Dependencies
-                        .Where(dependency =>
-                            !dependency.Optional &&
-                            !_plugins.ContainsKey(dependency.Id) &&
-                            !candidates.ContainsKey(dependency.Id))
-                        .Select(dependency => dependency.Id)
+                        .Where(dependency => !dependency.Optional)
+                        .Select(dependency => GetRequirementFailure(dependency, candidates))
+                        .Where(failure => failure is not null)
+                        .Cast<string>()
                         .ToArray(),
                 })
                 .Where(item => item.Missing.Length > 0)
@@ -302,7 +333,7 @@ public sealed class PluginHost : IDisposable
                 candidates.Remove(item.Candidate.Metadata.Id);
                 results.Add(Fail(
                     item.Candidate.Source,
-                    $"Plugin '{item.Candidate.Metadata.Id}' is missing required plugin dependencies: {string.Join(", ", item.Missing)}."));
+                    $"Plugin '{item.Candidate.Metadata.Id}' has unsatisfied required plugin dependencies: {string.Join(", ", item.Missing)}."));
             }
         }
     }
@@ -334,13 +365,68 @@ public sealed class PluginHost : IDisposable
             }
 
             var preferred = ready.FirstOrDefault(candidate => candidate.Dependencies.All(
-                dependency => !dependency.Optional || !remaining.ContainsKey(dependency.Id)));
+                dependency =>
+                    !dependency.Optional ||
+                    !remaining.TryGetValue(dependency.Id, out var optionalCandidate) ||
+                    !SatisfiesMinimum(optionalCandidate.Version, dependency)));
             var next = preferred ?? ready[0];
             remaining.Remove(next.Metadata.Id);
             ordered.Add(next);
         }
 
         return ordered;
+    }
+
+    private string? GetRequirementFailure(
+        PluginDependencyDescriptor dependency,
+        IDictionary<string, PluginCandidate> candidates)
+    {
+        if (_plugins.TryGetValue(dependency.Id, out var loaded))
+        {
+            return GetVersionFailure(dependency, loaded.Descriptor.Version);
+        }
+
+        if (candidates.TryGetValue(dependency.Id, out var candidate))
+        {
+            return SatisfiesMinimum(candidate.Version, dependency)
+                ? null
+                : FormatVersionFailure(dependency, candidate.Metadata.Version);
+        }
+
+        return $"{dependency.Id} (missing)";
+    }
+
+    private string? GetLoadedRequirementFailure(PluginDependencyDescriptor dependency)
+    {
+        if (!_plugins.TryGetValue(dependency.Id, out var loaded))
+        {
+            return $"{dependency.Id} (not loaded)";
+        }
+
+        return GetVersionFailure(dependency, loaded.Descriptor.Version);
+    }
+
+    private static string? GetVersionFailure(PluginDependencyDescriptor dependency, string actualVersion)
+    {
+        if (!PluginVersion.TryParse(actualVersion, out var parsedActualVersion))
+        {
+            return $"{dependency.Id} (invalid loaded version '{actualVersion}')";
+        }
+
+        return SatisfiesMinimum(parsedActualVersion, dependency)
+            ? null
+            : FormatVersionFailure(dependency, actualVersion);
+    }
+
+    private static bool SatisfiesMinimum(PluginVersion actualVersion, PluginDependencyDescriptor dependency)
+    {
+        return dependency.ParsedMinimumVersion is null ||
+            actualVersion.CompareTo(dependency.ParsedMinimumVersion.Value) >= 0;
+    }
+
+    private static string FormatVersionFailure(PluginDependencyDescriptor dependency, string actualVersion)
+    {
+        return $"{dependency.Id} >= {dependency.MinimumVersion} (found {actualVersion})";
     }
 
     private void DiscoverAssembly(

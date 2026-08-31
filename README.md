@@ -122,8 +122,11 @@ Plugin-to-plugin requirements use stable plugin IDs and are resolved before any
 plugin is activated:
 
 ```csharp
-[InsiderPluginDependency("com.example.foundation")]
+[InsiderPluginDependency("com.example.foundation", "1.2.0")]
 ```
+
+Versions deliberately use only `MAJOR.MINOR.PATCH`, and dependencies support one
+simple constraint: an optional minimum version.
 
 The API is deliberately small while the runtime and hook lifecycle are proven
 against real Unity players.

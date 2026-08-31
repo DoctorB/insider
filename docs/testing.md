@@ -10,8 +10,8 @@ real Unity player.
 The executable suite in `tests/Insider.Tests` covers plugin discovery,
 metadata, duplicate identifiers, failure containment, reverse unload order,
 required and optional plugin dependency ordering, missing dependencies, cycles,
-failure propagation, installation manifests, hash verification, and proxy backup
-restoration.
+failure propagation, numeric version validation, minimum-version enforcement,
+installation manifests, hash verification, and proxy backup restoration.
 
 ### Managed bootstrap integration fixture
 

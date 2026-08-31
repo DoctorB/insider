@@ -36,10 +36,16 @@ Declare a required dependency on another plugin by its stable ID:
 [InsiderPluginDependency("com.example.foundation")]
 ```
 
+To require a minimum version, pass it as the second argument:
+
+```csharp
+[InsiderPluginDependency("com.example.foundation", "1.2.0")]
+```
+
 For an integration that can be absent, declare an optional dependency:
 
 ```csharp
-[InsiderPluginDependency("com.example.integration", optional: true)]
+[InsiderPluginDependency("com.example.integration", "1.2.0", optional: true)]
 ```
 
 Insider discovers all plugin types before activation and loads required plugins
@@ -50,8 +56,17 @@ running. If a required plugin throws during `Load()`, its dependants are skipped
 Optional dependencies are preferred earlier in the order when present. Their
 absence or failure does not block the declaring plugin, and optional cycles are
 broken deterministically. Declared dependencies are exposed through
-`PluginDescriptor.Dependencies` for diagnostics. Version ranges are not part of
-the contract yet; the plugin metadata version remains informational.
+`PluginDescriptor.Dependencies` for diagnostics.
+
+## Version policy
+
+Versions use exactly three non-negative integers: `MAJOR.MINOR.PATCH`. Leading
+zeroes, prerelease labels, build metadata, wildcards, and range expressions are
+not accepted. A dependency may declare one minimum version or no version at all.
+
+This restricted model is intentional: comparison stays obvious and predictable.
+A required dependency below the minimum blocks only its dependants. An optional
+dependency below the minimum is treated as unavailable.
 
 ## Installation layout
 

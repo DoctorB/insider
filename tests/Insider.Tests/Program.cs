@@ -21,6 +21,9 @@ internal static class Program
             ("unloads plugins in reverse order", UnloadsInReverseOrder),
             ("loads required plugin dependencies first", LoadsRequiredPluginDependenciesFirst),
             ("loads present optional plugin dependencies first", LoadsPresentOptionalPluginDependenciesFirst),
+            ("rejects invalid plugin version metadata", RejectsInvalidPluginVersionMetadata),
+            ("rejects plugin dependencies below the minimum version", RejectsPluginDependenciesBelowMinimumVersion),
+            ("allows optional dependencies below the minimum version", AllowsOptionalDependenciesBelowMinimumVersion),
             ("rejects missing required plugin dependencies", RejectsMissingRequiredPluginDependencies),
             ("rejects required plugin dependency cycles", RejectsRequiredPluginDependencyCycles),
             ("contains failures across required plugin dependencies", ContainsRequiredPluginDependencyFailures),
@@ -113,6 +116,7 @@ internal static class Program
         var dependent = host.LoadedPlugins.First(plugin => plugin.Id == "dev.insider.tests.dependent");
         Assert(dependent.Dependencies.Count == 1, "Plugin descriptor did not expose its dependency.");
         Assert(!dependent.Dependencies[0].Optional, "Required dependency was marked optional.");
+        Assert(dependent.Dependencies[0].MinimumVersion == "1.0.0", "Minimum plugin dependency version was not exposed.");
     }
 
     private static void RejectsMissingRequiredPluginDependencies()
@@ -121,6 +125,43 @@ internal static class Program
 
         Assert(!result.Succeeded, "Plugin with a missing required dependency was loaded.");
         Assert(MissingRequiredDependencyPlugin.LoadCount == 0, "Plugin with a missing dependency executed Load().");
+    }
+
+    private static void RejectsInvalidPluginVersionMetadata()
+    {
+        var host = CreateHost();
+        var invalidPlugin = host.Load(typeof(InvalidVersionPlugin));
+        var invalidMinimum = host.Load(typeof(InvalidMinimumVersionPlugin));
+
+        Assert(!invalidPlugin.Succeeded, "Plugin with an invalid version was loaded.");
+        Assert(!invalidMinimum.Succeeded, "Plugin with an invalid minimum version was loaded.");
+        Assert(InvalidVersionPlugin.LoadCount == 0, "Plugin with an invalid version executed Load().");
+        Assert(InvalidMinimumVersionPlugin.LoadCount == 0, "Plugin with an invalid minimum version executed Load().");
+    }
+
+    private static void RejectsPluginDependenciesBelowMinimumVersion()
+    {
+        var host = CreateHost();
+        var results = host.Load(new[] { typeof(RequiresNewerFoundationPlugin), typeof(FoundationPlugin) });
+
+        Assert(results.Count == 2, "Unexpected result count for minimum-version graph.");
+        Assert(results.Count(result => result.Succeeded) == 1, "Minimum-version mismatch did not isolate the dependent plugin.");
+        Assert(host.LoadedPlugins.Count == 1 && host.LoadedPlugins.First().Id == "dev.insider.tests.foundation", "Compatible provider was not loaded.");
+        Assert(RequiresNewerFoundationPlugin.LoadCount == 0, "Plugin ran with a provider below its minimum version.");
+        Assert(
+            results.Any(result => result.Error?.Contains("foundation >= 2.0.0 (found 1.0.0)", StringComparison.Ordinal) == true),
+            "Minimum-version mismatch was not diagnosed.");
+    }
+
+    private static void AllowsOptionalDependenciesBelowMinimumVersion()
+    {
+        var host = CreateHost();
+        Assert(host.Load(typeof(FoundationPlugin)).Succeeded, "Foundation plugin did not load.");
+
+        var result = host.Load(typeof(OptionalNewerFoundationPlugin));
+
+        Assert(result.Succeeded, result.Error ?? "Plugin was blocked by an optional provider below its minimum version.");
+        Assert(OptionalNewerFoundationPlugin.LoadCount == 1, "Plugin with an incompatible optional provider did not execute Load().");
     }
 
     private static void LoadsPresentOptionalPluginDependenciesFirst()
@@ -287,6 +328,10 @@ internal static class Program
         MissingRequiredDependencyPlugin.LoadCount = 0;
         FailingDependentPlugin.LoadCount = 0;
         OptionalDependencyPlugin.LoadCount = 0;
+        InvalidVersionPlugin.LoadCount = 0;
+        InvalidMinimumVersionPlugin.LoadCount = 0;
+        RequiresNewerFoundationPlugin.LoadCount = 0;
+        OptionalNewerFoundationPlugin.LoadCount = 0;
         LifecycleEvents.Clear();
         PluginGraphEvents.Clear();
     }
@@ -565,12 +610,75 @@ public sealed class FoundationPlugin : IInsiderPlugin
 }
 
 [InsiderPlugin("dev.insider.tests.dependent", "Dependent", "1.0.0")]
-[InsiderPluginDependency("dev.insider.tests.foundation")]
+[InsiderPluginDependency("dev.insider.tests.foundation", "1.0.0")]
 public sealed class DependentPlugin : IInsiderPlugin
 {
     public void Load(IInsiderContext context)
     {
         Program.PluginGraphEvents.Add("dependent");
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.invalid-version", "Invalid Version", "1.0")]
+public sealed class InvalidVersionPlugin : IInsiderPlugin
+{
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.invalid-minimum", "Invalid Minimum", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.foundation", "1.0")]
+public sealed class InvalidMinimumVersionPlugin : IInsiderPlugin
+{
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.requires-newer", "Requires Newer", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.foundation", "2.0.0")]
+public sealed class RequiresNewerFoundationPlugin : IInsiderPlugin
+{
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.optional-newer", "Optional Newer", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.foundation", "2.0.0", optional: true)]
+public sealed class OptionalNewerFoundationPlugin : IInsiderPlugin
+{
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
     }
 
     public void Unload()
@@ -637,7 +745,7 @@ public sealed class FailingDependentPlugin : IInsiderPlugin
 }
 
 [InsiderPlugin("dev.insider.tests.optional", "Optional", "1.0.0")]
-[InsiderPluginDependency("dev.insider.tests.foundation", optional: true)]
+[InsiderPluginDependency("dev.insider.tests.foundation", "1.0.0", optional: true)]
 public sealed class OptionalDependencyPlugin : IInsiderPlugin
 {
     public static int LoadCount { get; set; }

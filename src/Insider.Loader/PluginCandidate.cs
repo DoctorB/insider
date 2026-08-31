@@ -8,11 +8,13 @@ internal sealed class PluginCandidate
     public PluginCandidate(
         Type type,
         InsiderPluginAttribute metadata,
+        PluginVersion version,
         IReadOnlyList<PluginDependencyDescriptor> dependencies,
         string source)
     {
         Type = type;
         Metadata = metadata;
+        Version = version;
         Dependencies = dependencies;
         Source = source;
     }
@@ -20,6 +22,8 @@ internal sealed class PluginCandidate
     public Type Type { get; }
 
     public InsiderPluginAttribute Metadata { get; }
+
+    public PluginVersion Version { get; }
 
     public IReadOnlyList<PluginDependencyDescriptor> Dependencies { get; }
 

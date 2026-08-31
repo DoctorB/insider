@@ -38,6 +38,10 @@ form a directed graph that determines load order; missing nodes, duplicate IDs,
 and required cycles fail before affected plugin code runs. Optional dependencies
 are ordered first when possible but never create a hard graph edge.
 
+Plugin versions use a deliberately small numeric `MAJOR.MINOR.PATCH` model.
+Dependencies may specify one minimum version; arbitrary ranges are outside the
+initial loader contract.
+
 ### Insider.Bootstrap
 
 The earliest managed entry point. It resolves the game and Insider directories,
