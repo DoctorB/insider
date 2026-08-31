@@ -42,6 +42,9 @@ Plugin versions use a deliberately small numeric `MAJOR.MINOR.PATCH` model.
 Dependencies may specify one minimum version; arbitrary ranges are outside the
 initial loader contract.
 
+Each activated plugin receives a thin context wrapper whose logger prefixes
+messages with the plugin ID. All other context values are delegated unchanged.
+
 ### Insider.Bootstrap
 
 The earliest managed entry point. It resolves the game and Insider directories,

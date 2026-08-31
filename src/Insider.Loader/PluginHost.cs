@@ -220,7 +220,7 @@ public sealed class PluginHost : IDisposable
                 candidate.Metadata.Version,
                 candidate.Type.FullName ?? candidate.Type.Name,
                 candidate.Dependencies);
-            instance.Load(_context);
+            instance.Load(new PluginContext(_context, descriptor.Id));
 
             _plugins.Add(descriptor.Id, new LoadedPlugin(descriptor, instance));
             _loadOrder.Add(descriptor.Id);

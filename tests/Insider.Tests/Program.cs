@@ -18,6 +18,7 @@ internal static class Program
             ("rejects duplicate plugin ids", RejectsDuplicateIds),
             ("rejects missing metadata", RejectsMissingMetadata),
             ("contains plugin load failures", ContainsLoadFailure),
+            ("scopes plugin log messages by id", ScopesPluginLogMessagesById),
             ("unloads plugins in reverse order", UnloadsInReverseOrder),
             ("loads required plugin dependencies first", LoadsRequiredPluginDependenciesFirst),
             ("loads present optional plugin dependencies first", LoadsPresentOptionalPluginDependenciesFirst),
@@ -87,6 +88,22 @@ internal static class Program
         var result = CreateHost().Load(typeof(FailingPlugin));
         Assert(!result.Succeeded, "Failing plugin was reported as loaded.");
         Assert(FailingPlugin.UnloadCount == 1, "Partially loaded plugin was not cleaned up.");
+    }
+
+    private static void ScopesPluginLogMessagesById()
+    {
+        var context = new TestContext();
+        var host = new PluginHost(context);
+
+        var result = host.Load(typeof(LoggingPlugin));
+
+        Assert(result.Succeeded, result.Error ?? "Logging plugin did not load.");
+        Assert(
+            context.CapturedLogger.Messages.Contains("[dev.insider.tests.logging] hello"),
+            "Plugin log message did not include its plugin id.");
+        Assert(
+            context.CapturedLogger.Messages.Contains("Loaded plugin dev.insider.tests.logging 1.0.0."),
+            "Loader message was unexpectedly changed by the plugin scope.");
     }
 
     private static void UnloadsInReverseOrder()
@@ -225,6 +242,9 @@ internal static class Program
 
         var log = File.ReadAllText(result.LogPath);
         Assert(log.Contains("Plugin scan completed: 1 loaded, 0 failed.", StringComparison.Ordinal), "Bootstrap summary was not logged.");
+        Assert(
+            log.Contains("[dev.insider.tests.bootstrap-fixture] Bootstrap fixture loaded.", StringComparison.Ordinal),
+            "Plugin-scoped message was not persisted to the bootstrap log.");
 
         session.Stop();
 
@@ -570,6 +590,19 @@ public sealed class FailingPlugin : IInsiderPlugin
     }
 }
 
+[InsiderPlugin("dev.insider.tests.logging", "Logging", "1.0.0")]
+public sealed class LoggingPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        context.Logger.Info("hello");
+    }
+
+    public void Unload()
+    {
+    }
+}
+
 [InsiderPlugin("dev.insider.tests.a", "A", "1.0.0")]
 public sealed class OrderedPluginA : IInsiderPlugin
 {
@@ -763,19 +796,30 @@ public sealed class OptionalDependencyPlugin : IInsiderPlugin
 
 internal sealed class TestContext : IInsiderContext
 {
+    public TestContext()
+    {
+        CapturedLogger = new TestLogger();
+        Logger = CapturedLogger;
+    }
+
     public string GameDirectory { get; } = "/game";
 
     public string InsiderDirectory { get; } = "/game/Insider";
 
-    public IInsiderLogger Logger { get; } = new TestLogger();
+    public IInsiderLogger Logger { get; }
+
+    public TestLogger CapturedLogger { get; }
 
     public IInsiderRuntimeInfo Runtime { get; } = new TestRuntimeInfo();
 }
 
 internal sealed class TestLogger : IInsiderLogger
 {
+    public List<string> Messages { get; } = new List<string>();
+
     public void Log(InsiderLogLevel level, string message, Exception? exception = null)
     {
+        Messages.Add(message);
     }
 }
 

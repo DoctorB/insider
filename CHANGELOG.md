@@ -28,3 +28,5 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   activation, cycle detection, and failure propagation.
 - Simple `MAJOR.MINOR.PATCH` plugin versions and inclusive minimum-version
   requirements, without a range-expression language.
+- Automatic plugin-ID prefixes for messages written through the plugin context
+  logger.

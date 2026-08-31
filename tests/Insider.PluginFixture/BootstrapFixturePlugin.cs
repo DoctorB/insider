@@ -11,6 +11,7 @@ public sealed class BootstrapFixturePlugin : IInsiderPlugin
     public void Load(IInsiderContext context)
     {
         _insiderDirectory = context.InsiderDirectory;
+        context.Logger.Info("Bootstrap fixture loaded.");
         File.WriteAllText(
             Path.Combine(_insiderDirectory, "fixture-loaded.txt"),
             $"Backend={context.Runtime.Backend}{System.Environment.NewLine}" +

@@ -131,6 +131,9 @@ simple constraint: an optional minimum version.
 The API is deliberately small while the runtime and hook lifecycle are proven
 against real Unity players.
 
+Messages written through `context.Logger` are automatically prefixed with the
+plugin ID, keeping the shared game log readable without extra logging APIs.
+
 Managed dependencies should be placed under `Insider/plugins/dependencies`.
 Insider resolves exact assembly identities from that tree and refuses ambiguous
 or conflicting versions. Unity Mono has one shared application domain, so two

@@ -68,6 +68,17 @@ This restricted model is intentional: comparison stays obvious and predictable.
 A required dependency below the minimum blocks only its dependants. An optional
 dependency below the minimum is treated as unavailable.
 
+## Logging
+
+Use `context.Logger` rather than writing directly to the console or Insider's log
+file. Insider automatically prefixes every plugin message with its declared ID:
+
+```text
+2026-08-31T12:00:00.0000000Z [Information] [com.example.my-plugin] My Plugin loaded.
+```
+
+The prefix is added by the loader; plugins should not add it themselves.
+
 ## Installation layout
 
 Place plugin entry assemblies directly in `Insider/plugins`. Put their managed
