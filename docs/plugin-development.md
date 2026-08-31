@@ -28,6 +28,31 @@ public sealed class MyPlugin : IInsiderPlugin
 Do not redistribute `Insider.Abstractions.dll` with the plugin. The loader ships
 and owns the contract assembly.
 
+## Plugin dependencies
+
+Declare a required dependency on another plugin by its stable ID:
+
+```csharp
+[InsiderPluginDependency("com.example.foundation")]
+```
+
+For an integration that can be absent, declare an optional dependency:
+
+```csharp
+[InsiderPluginDependency("com.example.integration", optional: true)]
+```
+
+Insider discovers all plugin types before activation and loads required plugins
+first. A missing required ID, duplicate plugin ID, repeated dependency
+declaration, or required dependency cycle prevents affected plugins from
+running. If a required plugin throws during `Load()`, its dependants are skipped.
+
+Optional dependencies are preferred earlier in the order when present. Their
+absence or failure does not block the declaring plugin, and optional cycles are
+broken deterministically. Declared dependencies are exposed through
+`PluginDescriptor.Dependencies` for diagnostics. Version ranges are not part of
+the contract yet; the plugin metadata version remains informational.
+
 ## Installation layout
 
 Place plugin entry assemblies directly in `Insider/plugins`. Put their managed

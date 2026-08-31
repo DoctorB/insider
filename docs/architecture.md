@@ -33,6 +33,11 @@ isolation boundary inside its shared application domain. Managed images are
 read into memory before loading so the source DLLs are not held open by Insider
 for the rest of the process.
 
+Plugin types are discovered before activation. Required plugin-ID dependencies
+form a directed graph that determines load order; missing nodes, duplicate IDs,
+and required cycles fail before affected plugin code runs. Optional dependencies
+are ordered first when possible but never create a hard graph edge.
+
 ### Insider.Bootstrap
 
 The earliest managed entry point. It resolves the game and Insider directories,
@@ -72,6 +77,8 @@ as the production backend.
 - A plugin failure must be logged with plugin identity and stage.
 - Dependency resolution must be deterministic; ambiguous assembly identities
   fail closed before plugin discovery.
+- Plugin activation must follow declared required dependencies, never incidental
+  filesystem or reflection order.
 - Third-party binaries require recorded versions, hashes, sources, and licenses.
 
 ## Security boundary

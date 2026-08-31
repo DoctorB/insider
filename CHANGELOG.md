@@ -24,3 +24,5 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Deterministic plugin dependency catalog with exact identity resolution and
   failure-closed diagnostics for missing or conflicting assemblies.
 - Plugin development guide and dependency-resolution architecture decision.
+- Required and optional plugin-ID dependencies with deterministic graph-based
+  activation, cycle detection, and failure propagation.

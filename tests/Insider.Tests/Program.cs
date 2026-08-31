@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Insider.Bootstrap;
 using Insider.Installation;
 using Insider.Loader;
@@ -18,6 +19,12 @@ internal static class Program
             ("rejects missing metadata", RejectsMissingMetadata),
             ("contains plugin load failures", ContainsLoadFailure),
             ("unloads plugins in reverse order", UnloadsInReverseOrder),
+            ("loads required plugin dependencies first", LoadsRequiredPluginDependenciesFirst),
+            ("loads present optional plugin dependencies first", LoadsPresentOptionalPluginDependenciesFirst),
+            ("rejects missing required plugin dependencies", RejectsMissingRequiredPluginDependencies),
+            ("rejects required plugin dependency cycles", RejectsRequiredPluginDependencyCycles),
+            ("contains failures across required plugin dependencies", ContainsRequiredPluginDependencyFailures),
+            ("allows missing optional plugin dependencies", AllowsMissingOptionalPluginDependencies),
             ("fails closed on a missing plugin dependency", FailsClosedOnMissingPluginDependency),
             ("bootstraps a plugin directory end to end", BootstrapsPluginDirectoryEndToEnd),
             ("rejects conflicting plugin dependency versions", RejectsConflictingPluginDependencyVersions),
@@ -90,6 +97,70 @@ internal static class Program
         Assert(LifecycleEvents.Count == 2, "Unexpected number of unload events.");
         Assert(LifecycleEvents[0] == "B" && LifecycleEvents[1] == "A", "Plugins were not unloaded in reverse order.");
         Assert(host.LoadedPlugins.Count == 0, "Registry was not cleared after unload.");
+    }
+
+    private static void LoadsRequiredPluginDependenciesFirst()
+    {
+        var host = CreateHost();
+        var results = host.Load(new[] { typeof(DependentPlugin), typeof(FoundationPlugin) });
+
+        Assert(results.Count == 2 && results[0].Succeeded && results[1].Succeeded, "Plugin dependency graph did not load.");
+        Assert(PluginGraphEvents.Count == 2, "Unexpected plugin graph event count.");
+        Assert(
+            PluginGraphEvents[0] == "foundation" && PluginGraphEvents[1] == "dependent",
+            "Required plugin dependency was not loaded first.");
+
+        var dependent = host.LoadedPlugins.First(plugin => plugin.Id == "dev.insider.tests.dependent");
+        Assert(dependent.Dependencies.Count == 1, "Plugin descriptor did not expose its dependency.");
+        Assert(!dependent.Dependencies[0].Optional, "Required dependency was marked optional.");
+    }
+
+    private static void RejectsMissingRequiredPluginDependencies()
+    {
+        var result = CreateHost().Load(typeof(MissingRequiredDependencyPlugin));
+
+        Assert(!result.Succeeded, "Plugin with a missing required dependency was loaded.");
+        Assert(MissingRequiredDependencyPlugin.LoadCount == 0, "Plugin with a missing dependency executed Load().");
+    }
+
+    private static void LoadsPresentOptionalPluginDependenciesFirst()
+    {
+        var host = CreateHost();
+        var results = host.Load(new[] { typeof(OptionalDependencyPlugin), typeof(FoundationPlugin) });
+
+        Assert(results.Count == 2 && results[0].Succeeded && results[1].Succeeded, "Present optional dependency graph did not load.");
+        Assert(PluginGraphEvents.Count == 2, "Unexpected optional plugin graph event count.");
+        Assert(
+            PluginGraphEvents[0] == "foundation" && PluginGraphEvents[1] == "optional",
+            "Present optional plugin dependency was not loaded first.");
+    }
+
+    private static void RejectsRequiredPluginDependencyCycles()
+    {
+        var host = CreateHost();
+        var results = host.Load(new[] { typeof(CyclicPluginA), typeof(CyclicPluginB) });
+
+        Assert(results.Count == 2 && !results[0].Succeeded && !results[1].Succeeded, "Dependency cycle was not rejected.");
+        Assert(host.LoadedPlugins.Count == 0, "Plugins from a dependency cycle were loaded.");
+    }
+
+    private static void ContainsRequiredPluginDependencyFailures()
+    {
+        var host = CreateHost();
+        var results = host.Load(new[] { typeof(FailingPlugin), typeof(FailingDependentPlugin) });
+
+        Assert(results.Count == 2 && !results[0].Succeeded && !results[1].Succeeded, "Required plugin failure did not propagate.");
+        Assert(FailingDependentPlugin.LoadCount == 0, "Dependent plugin executed after its requirement failed.");
+    }
+
+    private static void AllowsMissingOptionalPluginDependencies()
+    {
+        var host = CreateHost();
+        var result = host.Load(typeof(OptionalDependencyPlugin));
+
+        Assert(result.Succeeded, result.Error ?? "Plugin with an absent optional dependency did not load.");
+        Assert(OptionalDependencyPlugin.LoadCount == 1, "Plugin with an absent optional dependency did not execute Load().");
+        Assert(result.Plugin?.Dependencies.Count == 1 && result.Plugin.Dependencies[0].Optional, "Optional dependency metadata was not exposed.");
     }
 
     private static void BootstrapsPluginDirectoryEndToEnd()
@@ -213,7 +284,11 @@ internal static class Program
     {
         ValidPlugin.LoadCount = 0;
         FailingPlugin.UnloadCount = 0;
+        MissingRequiredDependencyPlugin.LoadCount = 0;
+        FailingDependentPlugin.LoadCount = 0;
+        OptionalDependencyPlugin.LoadCount = 0;
         LifecycleEvents.Clear();
+        PluginGraphEvents.Clear();
     }
 
     private static void Assert(bool condition, string message)
@@ -240,6 +315,8 @@ internal static class Program
     }
 
     public static List<string> LifecycleEvents { get; } = new List<string>();
+
+    public static List<string> PluginGraphEvents { get; } = new List<string>();
 }
 
 internal sealed class BootstrapFixtureWorkspace : IDisposable
@@ -471,6 +548,108 @@ public sealed class OrderedPluginB : IInsiderPlugin
     public void Unload()
     {
         Program.LifecycleEvents.Add("B");
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.foundation", "Foundation", "1.0.0")]
+public sealed class FoundationPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        Program.PluginGraphEvents.Add("foundation");
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.dependent", "Dependent", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.foundation")]
+public sealed class DependentPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        Program.PluginGraphEvents.Add("dependent");
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.missing-required", "Missing Required", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.not-installed")]
+public sealed class MissingRequiredDependencyPlugin : IInsiderPlugin
+{
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.cycle-a", "Cycle A", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.cycle-b")]
+public sealed class CyclicPluginA : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.cycle-b", "Cycle B", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.cycle-a")]
+public sealed class CyclicPluginB : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.failing-dependent", "Failing Dependent", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.failing")]
+public sealed class FailingDependentPlugin : IInsiderPlugin
+{
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.optional", "Optional", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.foundation", optional: true)]
+public sealed class OptionalDependencyPlugin : IInsiderPlugin
+{
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
+        Program.PluginGraphEvents.Add("optional");
+    }
+
+    public void Unload()
+    {
     }
 }
 

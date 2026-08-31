@@ -45,12 +45,13 @@ public sealed class PluginHost : IDisposable
         }
 
         var results = new List<PluginLoadResult>();
+        var pluginTypes = new List<Type>();
         foreach (var assemblyPath in Directory.GetFiles(normalizedDirectory, "*.dll").OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
-            results.AddRange(LoadAssembly(assemblyPath));
+            DiscoverAssembly(assemblyPath, pluginTypes, results);
         }
 
-        return results.AsReadOnly();
+        return LoadTypes(pluginTypes, results);
     }
 
     public IReadOnlyList<PluginLoadResult> LoadAssembly(string assemblyPath)
@@ -60,20 +61,10 @@ public sealed class PluginHost : IDisposable
             throw new ArgumentException("An assembly path is required.", nameof(assemblyPath));
         }
 
-        try
-        {
-            var normalizedPath = Path.GetFullPath(assemblyPath);
-            var assembly = Assembly.Load(File.ReadAllBytes(normalizedPath));
-            return GetLoadableTypes(assembly)
-                .Where(IsPluginType)
-                .Select(Load)
-                .ToArray();
-        }
-        catch (Exception exception)
-        {
-            _context.Logger.Error($"Could not load plugin assembly '{assemblyPath}'.", exception);
-            return new[] { PluginLoadResult.Failure(assemblyPath, exception.Message, exception) };
-        }
+        var results = new List<PluginLoadResult>();
+        var pluginTypes = new List<Type>();
+        DiscoverAssembly(assemblyPath, pluginTypes, results);
+        return LoadTypes(pluginTypes, results);
     }
 
     public PluginLoadResult Load(Type pluginType)
@@ -83,46 +74,132 @@ public sealed class PluginHost : IDisposable
             throw new ArgumentNullException(nameof(pluginType));
         }
 
+        return Load(new[] { pluginType })[0];
+    }
+
+    public IReadOnlyList<PluginLoadResult> Load(IEnumerable<Type> pluginTypes)
+    {
+        if (pluginTypes is null)
+        {
+            throw new ArgumentNullException(nameof(pluginTypes));
+        }
+
+        return LoadTypes(pluginTypes, new List<PluginLoadResult>());
+    }
+
+    private IReadOnlyList<PluginLoadResult> LoadTypes(
+        IEnumerable<Type> pluginTypes,
+        List<PluginLoadResult> results)
+    {
+        var candidates = new List<PluginCandidate>();
+        foreach (var pluginType in pluginTypes)
+        {
+            if (pluginType is null)
+            {
+                results.Add(Fail("<null>", "A plugin type cannot be null."));
+                continue;
+            }
+
+            var candidate = CreateCandidate(pluginType, results);
+            if (candidate is not null)
+            {
+                candidates.Add(candidate);
+            }
+        }
+
+        var remaining = SelectUniqueCandidates(candidates, results);
+        RemoveCandidatesWithMissingDependencies(remaining, results);
+        var loadOrder = CreateLoadOrder(remaining, results);
+
+        foreach (var candidate in loadOrder)
+        {
+            results.Add(Activate(candidate));
+        }
+
+        return results.AsReadOnly();
+    }
+
+    private PluginCandidate? CreateCandidate(Type pluginType, ICollection<PluginLoadResult> results)
+    {
         var source = pluginType.AssemblyQualifiedName ?? pluginType.FullName ?? pluginType.Name;
 
         if (!IsPluginType(pluginType))
         {
-            return Fail(source, $"Type '{pluginType.FullName}' is not a concrete {nameof(IInsiderPlugin)} implementation.");
+            results.Add(Fail(source, $"Type '{pluginType.FullName}' is not a concrete {nameof(IInsiderPlugin)} implementation."));
+            return null;
         }
 
         var metadata = pluginType.GetCustomAttribute<InsiderPluginAttribute>(inherit: false);
         if (metadata is null)
         {
-            return Fail(source, $"Plugin type '{pluginType.FullName}' is missing {nameof(InsiderPluginAttribute)}.");
+            results.Add(Fail(source, $"Plugin type '{pluginType.FullName}' is missing {nameof(InsiderPluginAttribute)}."));
+            return null;
         }
 
-        if (_plugins.ContainsKey(metadata.Id))
+        var dependencyAttributes = pluginType
+            .GetCustomAttributes<InsiderPluginDependencyAttribute>(inherit: false)
+            .OrderBy(attribute => attribute.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var duplicateDependency = dependencyAttributes
+            .GroupBy(attribute => attribute.Id, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateDependency is not null)
         {
-            return Fail(source, $"A plugin with id '{metadata.Id}' is already loaded.");
+            results.Add(Fail(source, $"Plugin '{metadata.Id}' declares dependency '{duplicateDependency.Key}' more than once."));
+            return null;
+        }
+
+        var dependencies = Array.AsReadOnly(dependencyAttributes
+            .Select(attribute => new PluginDependencyDescriptor(attribute.Id, attribute.Optional))
+            .ToArray());
+        return new PluginCandidate(pluginType, metadata, dependencies, source);
+    }
+
+    private PluginLoadResult Activate(PluginCandidate candidate)
+    {
+        if (_plugins.ContainsKey(candidate.Metadata.Id))
+        {
+            return Fail(candidate.Source, $"A plugin with id '{candidate.Metadata.Id}' is already loaded.");
+        }
+
+        var unavailable = candidate.Dependencies
+            .Where(dependency => !dependency.Optional && !_plugins.ContainsKey(dependency.Id))
+            .Select(dependency => dependency.Id)
+            .ToArray();
+        if (unavailable.Length > 0)
+        {
+            return Fail(
+                candidate.Source,
+                $"Plugin '{candidate.Metadata.Id}' was not loaded because required plugin dependencies did not load: {string.Join(", ", unavailable)}.");
         }
 
         IInsiderPlugin? instance = null;
         try
         {
-            instance = (IInsiderPlugin?)Activator.CreateInstance(pluginType);
+            instance = (IInsiderPlugin?)Activator.CreateInstance(candidate.Type);
             if (instance is null)
             {
-                return Fail(source, $"Plugin type '{pluginType.FullName}' could not be instantiated.");
+                return Fail(candidate.Source, $"Plugin type '{candidate.Type.FullName}' could not be instantiated.");
             }
 
-            var descriptor = new PluginDescriptor(metadata.Id, metadata.Name, metadata.Version, pluginType.FullName ?? pluginType.Name);
+            var descriptor = new PluginDescriptor(
+                candidate.Metadata.Id,
+                candidate.Metadata.Name,
+                candidate.Metadata.Version,
+                candidate.Type.FullName ?? candidate.Type.Name,
+                candidate.Dependencies);
             instance.Load(_context);
 
             _plugins.Add(descriptor.Id, new LoadedPlugin(descriptor, instance));
             _loadOrder.Add(descriptor.Id);
             _context.Logger.Info($"Loaded plugin {descriptor.Id} {descriptor.Version}.");
-            return PluginLoadResult.Success(descriptor, source);
+            return PluginLoadResult.Success(descriptor, candidate.Source);
         }
         catch (Exception exception)
         {
-            TryUnloadPartial(instance, source);
-            _context.Logger.Error($"Plugin '{source}' failed during load.", exception);
-            return PluginLoadResult.Failure(source, exception.Message, exception);
+            TryUnloadPartial(instance, candidate.Source);
+            _context.Logger.Error($"Plugin '{candidate.Source}' failed during load.", exception);
+            return PluginLoadResult.Failure(candidate.Source, exception.Message, exception);
         }
     }
 
@@ -159,6 +236,132 @@ public sealed class PluginHost : IDisposable
     {
         _context.Logger.Warn(error);
         return PluginLoadResult.Failure(source, error);
+    }
+
+    private Dictionary<string, PluginCandidate> SelectUniqueCandidates(
+        IEnumerable<PluginCandidate> candidates,
+        ICollection<PluginLoadResult> results)
+    {
+        var selected = new Dictionary<string, PluginCandidate>(StringComparer.OrdinalIgnoreCase);
+        foreach (var group in candidates
+            .GroupBy(candidate => candidate.Metadata.Id, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var groupedCandidates = group.OrderBy(candidate => candidate.Source, StringComparer.OrdinalIgnoreCase).ToArray();
+            if (groupedCandidates.Length > 1)
+            {
+                foreach (var candidate in groupedCandidates)
+                {
+                    results.Add(Fail(candidate.Source, $"Multiple discovered plugins declare id '{group.Key}'."));
+                }
+
+                continue;
+            }
+
+            var single = groupedCandidates[0];
+            if (_plugins.ContainsKey(single.Metadata.Id))
+            {
+                results.Add(Fail(single.Source, $"A plugin with id '{single.Metadata.Id}' is already loaded."));
+                continue;
+            }
+
+            selected.Add(single.Metadata.Id, single);
+        }
+
+        return selected;
+    }
+
+    private void RemoveCandidatesWithMissingDependencies(
+        IDictionary<string, PluginCandidate> candidates,
+        ICollection<PluginLoadResult> results)
+    {
+        while (true)
+        {
+            var invalid = candidates.Values
+                .Select(candidate => new
+                {
+                    Candidate = candidate,
+                    Missing = candidate.Dependencies
+                        .Where(dependency =>
+                            !dependency.Optional &&
+                            !_plugins.ContainsKey(dependency.Id) &&
+                            !candidates.ContainsKey(dependency.Id))
+                        .Select(dependency => dependency.Id)
+                        .ToArray(),
+                })
+                .Where(item => item.Missing.Length > 0)
+                .OrderBy(item => item.Candidate.Metadata.Id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (invalid.Length == 0)
+            {
+                return;
+            }
+
+            foreach (var item in invalid)
+            {
+                candidates.Remove(item.Candidate.Metadata.Id);
+                results.Add(Fail(
+                    item.Candidate.Source,
+                    $"Plugin '{item.Candidate.Metadata.Id}' is missing required plugin dependencies: {string.Join(", ", item.Missing)}."));
+            }
+        }
+    }
+
+    private IReadOnlyList<PluginCandidate> CreateLoadOrder(
+        IDictionary<string, PluginCandidate> candidates,
+        ICollection<PluginLoadResult> results)
+    {
+        var remaining = new Dictionary<string, PluginCandidate>(candidates, StringComparer.OrdinalIgnoreCase);
+        var ordered = new List<PluginCandidate>();
+
+        while (remaining.Count > 0)
+        {
+            var ready = remaining.Values
+                .Where(candidate => candidate.Dependencies.All(
+                    dependency => dependency.Optional || !remaining.ContainsKey(dependency.Id)))
+                .OrderBy(candidate => candidate.Metadata.Id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (ready.Length == 0)
+            {
+                foreach (var candidate in remaining.Values.OrderBy(item => item.Metadata.Id, StringComparer.OrdinalIgnoreCase))
+                {
+                    results.Add(Fail(
+                        candidate.Source,
+                        $"Plugin '{candidate.Metadata.Id}' has a required dependency cycle or depends on a cyclic plugin."));
+                }
+
+                break;
+            }
+
+            var preferred = ready.FirstOrDefault(candidate => candidate.Dependencies.All(
+                dependency => !dependency.Optional || !remaining.ContainsKey(dependency.Id)));
+            var next = preferred ?? ready[0];
+            remaining.Remove(next.Metadata.Id);
+            ordered.Add(next);
+        }
+
+        return ordered;
+    }
+
+    private void DiscoverAssembly(
+        string assemblyPath,
+        ICollection<Type> pluginTypes,
+        ICollection<PluginLoadResult> results)
+    {
+        try
+        {
+            var normalizedPath = Path.GetFullPath(assemblyPath);
+            var assembly = Assembly.Load(File.ReadAllBytes(normalizedPath));
+            foreach (var pluginType in GetLoadableTypes(assembly).Where(IsPluginType))
+            {
+                pluginTypes.Add(pluginType);
+            }
+        }
+        catch (Exception exception)
+        {
+            _context.Logger.Error($"Could not load plugin assembly '{assemblyPath}'.", exception);
+            results.Add(PluginLoadResult.Failure(assemblyPath, exception.Message, exception));
+        }
     }
 
     private void EnsureDependencyResolver(string pluginDirectory)

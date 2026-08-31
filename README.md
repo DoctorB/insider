@@ -118,6 +118,13 @@ public sealed class HelloPlugin : IInsiderPlugin
 }
 ```
 
+Plugin-to-plugin requirements use stable plugin IDs and are resolved before any
+plugin is activated:
+
+```csharp
+[InsiderPluginDependency("com.example.foundation")]
+```
+
 The API is deliberately small while the runtime and hook lifecycle are proven
 against real Unity players.
 
