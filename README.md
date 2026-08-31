@@ -40,7 +40,10 @@ another mod loader. A Doorstop-compatible managed adapter remains available for
 integration testing and migration only.
 
 See [docs/architecture.md](docs/architecture.md) for the component boundaries
-and [docs/compatibility.md](docs/compatibility.md) for the support policy.
+and [docs/compatibility.md](docs/compatibility.md) for the support policy. The
+[testing strategy](docs/testing.md) explains what is automated without a game
+fixture and what still requires a real Unity player. Plugin authors should start
+with the [plugin development guide](docs/plugin-development.md).
 
 ## Repository layout
 
@@ -90,6 +93,15 @@ The native bootstrap uses CMake and the MSVC x64 toolchain:
 ```powershell
 cmake -S native -B artifacts/native-build -A x64
 cmake --build artifacts/native-build --config Release
+ctest --test-dir artifacts/native-build --build-config Release --output-on-failure
+```
+
+The Windows artifact is checked after assembly for required runtime files,
+license notices, accidental test/source content, and a working packaged CLI.
+Run the same check locally with:
+
+```powershell
+./eng/Test-WindowsPackage.ps1 -PackageDirectory artifacts/Insider-windows-x64
 ```
 
 ## Plugin model
@@ -114,8 +126,28 @@ public sealed class HelloPlugin : IInsiderPlugin
 }
 ```
 
+Plugin-to-plugin requirements use stable plugin IDs and are resolved before any
+plugin is activated:
+
+```csharp
+[InsiderPluginDependency("com.example.foundation", "1.2.0")]
+```
+
+Versions deliberately use only `MAJOR.MINOR.PATCH`, and dependencies support one
+simple constraint: an optional minimum version.
+
 The API is deliberately small while the runtime and hook lifecycle are proven
 against real Unity players.
+
+Messages written through `context.Logger` are automatically prefixed with the
+plugin ID, keeping the shared game log readable without extra logging APIs.
+
+Managed dependencies should be placed under `Insider/plugins/dependencies`.
+Insider resolves exact assembly identities from that tree and refuses ambiguous
+or conflicting versions. Unity Mono has one shared application domain, so two
+plugins cannot safely carry different versions of an assembly with the same
+simple name. See the plugin development guide for the supported layout and
+diagnostics.
 
 ## Security
 

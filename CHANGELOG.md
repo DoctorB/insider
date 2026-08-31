@@ -17,3 +17,18 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Insider-owned Windows x64 `version.dll` bootstrap for Unity Mono.
 - Safe CLI install, status, and uninstall commands with SHA-256 manifests.
 - Windows x64 CI package artifact containing a framework-dependent .NET 10 CLI.
+- Native fake-Mono fixture covering the bootstrap call sequence, delayed domain
+  availability, and managed invocation failures.
+- Managed bootstrap integration fixture covering runtime detection, plugin
+  discovery, lifecycle callbacks, logging, and unsupported runtimes.
+- Deterministic plugin dependency catalog with exact identity resolution and
+  failure-closed diagnostics for missing or conflicting assemblies.
+- Plugin development guide and dependency-resolution architecture decision.
+- Required and optional plugin-ID dependencies with deterministic graph-based
+  activation, cycle detection, and failure propagation.
+- Simple `MAJOR.MINOR.PATCH` plugin versions and inclusive minimum-version
+  requirements, without a range-expression language.
+- Automatic plugin-ID prefixes for messages written through the plugin context
+  logger.
+- CI verification of required Windows package files and license notices,
+  test/source exclusions, and the packaged CLI entry point.

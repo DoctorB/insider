@@ -10,6 +10,9 @@
     <Project Path="samples/HelloInsider/HelloInsider.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Insider.DependencyFixture.V1/Insider.DependencyFixture.V1.csproj" />
+    <Project Path="tests/Insider.DependencyFixture.V2/Insider.DependencyFixture.V2.csproj" />
+    <Project Path="tests/Insider.PluginFixture/Insider.PluginFixture.csproj" />
     <Project Path="tests/Insider.Tests/Insider.Tests.csproj" />
   </Folder>
 </Solution>

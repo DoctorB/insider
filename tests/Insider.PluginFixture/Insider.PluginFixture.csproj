@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>Insider.PluginFixture</AssemblyName>
+    <RootNamespace>Insider.PluginFixture</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Insider.Abstractions/Insider.Abstractions.csproj" />
+    <ProjectReference Include="../Insider.DependencyFixture.V1/Insider.DependencyFixture.V1.csproj" />
+  </ItemGroup>
+</Project>

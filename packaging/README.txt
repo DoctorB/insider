@@ -12,7 +12,10 @@ Verify or remove:
   dotnet insider.dll uninstall "C:\Path\Game.exe"
 
 Plugins belong in <game>\Insider\plugins.
+Managed plugin dependencies belong in <game>\Insider\plugins\dependencies.
 Logs are written to <game>\Insider\logs.
+
+License terms are included in LICENSE and THIRD_PARTY_NOTICES.md.
 
 Keep a backup of the game installation. This software is pre-alpha.
 The CLI requires the Microsoft .NET 10 runtime.

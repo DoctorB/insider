@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feature/**']
   pull_request:
 
 permissions:
@@ -69,6 +69,10 @@ jobs:
           ./eng/Build-WindowsPackage.ps1
           -NativeBootstrap artifacts/native-build/Insider.Bootstrap.Native/Release/version.dll
           -CliPublishDirectory artifacts/cli
+
+      - name: Verify package
+        shell: pwsh
+        run: ./eng/Test-WindowsPackage.ps1
 
       - name: Upload package
         uses: actions/upload-artifact@v7

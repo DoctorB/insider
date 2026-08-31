@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using Insider.Bootstrap;
 using Insider.Installation;
 using Insider.Loader;
 
@@ -16,7 +18,21 @@ internal static class Program
             ("rejects duplicate plugin ids", RejectsDuplicateIds),
             ("rejects missing metadata", RejectsMissingMetadata),
             ("contains plugin load failures", ContainsLoadFailure),
+            ("scopes plugin log messages by id", ScopesPluginLogMessagesById),
             ("unloads plugins in reverse order", UnloadsInReverseOrder),
+            ("loads required plugin dependencies first", LoadsRequiredPluginDependenciesFirst),
+            ("loads present optional plugin dependencies first", LoadsPresentOptionalPluginDependenciesFirst),
+            ("rejects invalid plugin version metadata", RejectsInvalidPluginVersionMetadata),
+            ("rejects plugin dependencies below the minimum version", RejectsPluginDependenciesBelowMinimumVersion),
+            ("allows optional dependencies below the minimum version", AllowsOptionalDependenciesBelowMinimumVersion),
+            ("rejects missing required plugin dependencies", RejectsMissingRequiredPluginDependencies),
+            ("rejects required plugin dependency cycles", RejectsRequiredPluginDependencyCycles),
+            ("contains failures across required plugin dependencies", ContainsRequiredPluginDependencyFailures),
+            ("allows missing optional plugin dependencies", AllowsMissingOptionalPluginDependencies),
+            ("fails closed on a missing plugin dependency", FailsClosedOnMissingPluginDependency),
+            ("bootstraps a plugin directory end to end", BootstrapsPluginDirectoryEndToEnd),
+            ("rejects conflicting plugin dependency versions", RejectsConflictingPluginDependencyVersions),
+            ("fails closed on an unsupported managed runtime", FailsClosedOnUnsupportedManagedRuntime),
             ("installs and uninstalls without losing an existing proxy", InstallsAndRestoresExistingProxy),
             ("refuses to remove modified installation files", RefusesToRemoveModifiedFiles),
         };
@@ -74,6 +90,22 @@ internal static class Program
         Assert(FailingPlugin.UnloadCount == 1, "Partially loaded plugin was not cleaned up.");
     }
 
+    private static void ScopesPluginLogMessagesById()
+    {
+        var context = new TestContext();
+        var host = new PluginHost(context);
+
+        var result = host.Load(typeof(LoggingPlugin));
+
+        Assert(result.Succeeded, result.Error ?? "Logging plugin did not load.");
+        Assert(
+            context.CapturedLogger.Messages.Contains("[dev.insider.tests.logging] hello"),
+            "Plugin log message did not include its plugin id.");
+        Assert(
+            context.CapturedLogger.Messages.Contains("Loaded plugin dev.insider.tests.logging 1.0.0."),
+            "Loader message was unexpectedly changed by the plugin scope.");
+    }
+
     private static void UnloadsInReverseOrder()
     {
         var host = CreateHost();
@@ -85,6 +117,186 @@ internal static class Program
         Assert(LifecycleEvents.Count == 2, "Unexpected number of unload events.");
         Assert(LifecycleEvents[0] == "B" && LifecycleEvents[1] == "A", "Plugins were not unloaded in reverse order.");
         Assert(host.LoadedPlugins.Count == 0, "Registry was not cleared after unload.");
+    }
+
+    private static void LoadsRequiredPluginDependenciesFirst()
+    {
+        var host = CreateHost();
+        var results = host.Load(new[] { typeof(DependentPlugin), typeof(FoundationPlugin) });
+
+        Assert(results.Count == 2 && results[0].Succeeded && results[1].Succeeded, "Plugin dependency graph did not load.");
+        Assert(PluginGraphEvents.Count == 2, "Unexpected plugin graph event count.");
+        Assert(
+            PluginGraphEvents[0] == "foundation" && PluginGraphEvents[1] == "dependent",
+            "Required plugin dependency was not loaded first.");
+
+        var dependent = host.LoadedPlugins.First(plugin => plugin.Id == "dev.insider.tests.dependent");
+        Assert(dependent.Dependencies.Count == 1, "Plugin descriptor did not expose its dependency.");
+        Assert(!dependent.Dependencies[0].Optional, "Required dependency was marked optional.");
+        Assert(dependent.Dependencies[0].MinimumVersion == "1.0.0", "Minimum plugin dependency version was not exposed.");
+    }
+
+    private static void RejectsMissingRequiredPluginDependencies()
+    {
+        var result = CreateHost().Load(typeof(MissingRequiredDependencyPlugin));
+
+        Assert(!result.Succeeded, "Plugin with a missing required dependency was loaded.");
+        Assert(MissingRequiredDependencyPlugin.LoadCount == 0, "Plugin with a missing dependency executed Load().");
+    }
+
+    private static void RejectsInvalidPluginVersionMetadata()
+    {
+        var host = CreateHost();
+        var invalidPlugin = host.Load(typeof(InvalidVersionPlugin));
+        var invalidMinimum = host.Load(typeof(InvalidMinimumVersionPlugin));
+
+        Assert(!invalidPlugin.Succeeded, "Plugin with an invalid version was loaded.");
+        Assert(!invalidMinimum.Succeeded, "Plugin with an invalid minimum version was loaded.");
+        Assert(InvalidVersionPlugin.LoadCount == 0, "Plugin with an invalid version executed Load().");
+        Assert(InvalidMinimumVersionPlugin.LoadCount == 0, "Plugin with an invalid minimum version executed Load().");
+    }
+
+    private static void RejectsPluginDependenciesBelowMinimumVersion()
+    {
+        var host = CreateHost();
+        var results = host.Load(new[] { typeof(RequiresNewerFoundationPlugin), typeof(FoundationPlugin) });
+
+        Assert(results.Count == 2, "Unexpected result count for minimum-version graph.");
+        Assert(results.Count(result => result.Succeeded) == 1, "Minimum-version mismatch did not isolate the dependent plugin.");
+        Assert(host.LoadedPlugins.Count == 1 && host.LoadedPlugins.First().Id == "dev.insider.tests.foundation", "Compatible provider was not loaded.");
+        Assert(RequiresNewerFoundationPlugin.LoadCount == 0, "Plugin ran with a provider below its minimum version.");
+        Assert(
+            results.Any(result => result.Error?.Contains("foundation >= 2.0.0 (found 1.0.0)", StringComparison.Ordinal) == true),
+            "Minimum-version mismatch was not diagnosed.");
+    }
+
+    private static void AllowsOptionalDependenciesBelowMinimumVersion()
+    {
+        var host = CreateHost();
+        Assert(host.Load(typeof(FoundationPlugin)).Succeeded, "Foundation plugin did not load.");
+
+        var result = host.Load(typeof(OptionalNewerFoundationPlugin));
+
+        Assert(result.Succeeded, result.Error ?? "Plugin was blocked by an optional provider below its minimum version.");
+        Assert(OptionalNewerFoundationPlugin.LoadCount == 1, "Plugin with an incompatible optional provider did not execute Load().");
+    }
+
+    private static void LoadsPresentOptionalPluginDependenciesFirst()
+    {
+        var host = CreateHost();
+        var results = host.Load(new[] { typeof(OptionalDependencyPlugin), typeof(FoundationPlugin) });
+
+        Assert(results.Count == 2 && results[0].Succeeded && results[1].Succeeded, "Present optional dependency graph did not load.");
+        Assert(PluginGraphEvents.Count == 2, "Unexpected optional plugin graph event count.");
+        Assert(
+            PluginGraphEvents[0] == "foundation" && PluginGraphEvents[1] == "optional",
+            "Present optional plugin dependency was not loaded first.");
+    }
+
+    private static void RejectsRequiredPluginDependencyCycles()
+    {
+        var host = CreateHost();
+        var results = host.Load(new[] { typeof(CyclicPluginA), typeof(CyclicPluginB) });
+
+        Assert(results.Count == 2 && !results[0].Succeeded && !results[1].Succeeded, "Dependency cycle was not rejected.");
+        Assert(host.LoadedPlugins.Count == 0, "Plugins from a dependency cycle were loaded.");
+    }
+
+    private static void ContainsRequiredPluginDependencyFailures()
+    {
+        var host = CreateHost();
+        var results = host.Load(new[] { typeof(FailingPlugin), typeof(FailingDependentPlugin) });
+
+        Assert(results.Count == 2 && !results[0].Succeeded && !results[1].Succeeded, "Required plugin failure did not propagate.");
+        Assert(FailingDependentPlugin.LoadCount == 0, "Dependent plugin executed after its requirement failed.");
+    }
+
+    private static void AllowsMissingOptionalPluginDependencies()
+    {
+        var host = CreateHost();
+        var result = host.Load(typeof(OptionalDependencyPlugin));
+
+        Assert(result.Succeeded, result.Error ?? "Plugin with an absent optional dependency did not load.");
+        Assert(OptionalDependencyPlugin.LoadCount == 1, "Plugin with an absent optional dependency did not execute Load().");
+        Assert(result.Plugin?.Dependencies.Count == 1 && result.Plugin.Dependencies[0].Optional, "Optional dependency metadata was not exposed.");
+    }
+
+    private static void BootstrapsPluginDirectoryEndToEnd()
+    {
+        using var fixture = BootstrapFixtureWorkspace.Create(withMonoRuntime: true);
+        fixture.InstallPluginFixture();
+
+        using var session = new BootstrapSession();
+        var result = session.Start(fixture.GameDirectory);
+
+        Assert(result.IsSupported, "Unity Mono fixture was not recognized as supported.");
+        Assert(result.Runtime.Backend == InsiderRuntimeBackend.UnityMono, "Unexpected runtime backend.");
+        Assert(result.LoadedPluginCount == 1, "Fixture plugin was not loaded exactly once.");
+        Assert(result.FailedPluginCount == 0, "Fixture plugin load unexpectedly failed.");
+        Assert(Directory.Exists(result.PluginDirectory), "Plugin directory was not created.");
+
+        var loadedMarker = Path.Combine(result.InsiderDirectory, "fixture-loaded.txt");
+        Assert(File.Exists(loadedMarker), "Fixture plugin did not write its load marker.");
+        Assert(File.ReadAllText(loadedMarker).Contains("Backend=UnityMono", StringComparison.Ordinal), "Fixture received the wrong runtime context.");
+        Assert(File.ReadAllText(loadedMarker).Contains("Dependency=dependency-v1", StringComparison.Ordinal), "Fixture dependency was not resolved.");
+
+        var log = File.ReadAllText(result.LogPath);
+        Assert(log.Contains("Plugin scan completed: 1 loaded, 0 failed.", StringComparison.Ordinal), "Bootstrap summary was not logged.");
+        Assert(
+            log.Contains("[dev.insider.tests.bootstrap-fixture] Bootstrap fixture loaded.", StringComparison.Ordinal),
+            "Plugin-scoped message was not persisted to the bootstrap log.");
+
+        session.Stop();
+
+        Assert(File.Exists(Path.Combine(result.InsiderDirectory, "fixture-unloaded.txt")), "Fixture plugin was not unloaded.");
+        Assert(File.ReadAllText(result.LogPath).Contains("Insider bootstrap stopped.", StringComparison.Ordinal), "Bootstrap shutdown was not logged.");
+
+        session.Stop();
+    }
+
+    private static void FailsClosedOnMissingPluginDependency()
+    {
+        using var fixture = BootstrapFixtureWorkspace.Create(withMonoRuntime: true);
+        fixture.InstallPluginFixture(includeDependency: false);
+
+        using var session = new BootstrapSession();
+        var result = session.Start(fixture.GameDirectory);
+
+        Assert(result.LoadedPluginCount == 0 && result.FailedPluginCount == 1, "Missing dependency did not fail exactly one plugin.");
+        Assert(!File.Exists(Path.Combine(result.InsiderDirectory, "fixture-loaded.txt")), "Plugin completed with a missing dependency.");
+        Assert(File.ReadAllText(result.LogPath).Contains("is not present under", StringComparison.Ordinal), "Missing dependency was not diagnosed.");
+    }
+
+    private static void RejectsConflictingPluginDependencyVersions()
+    {
+        using var fixture = BootstrapFixtureWorkspace.Create(withMonoRuntime: true);
+        fixture.InstallPluginFixture(includeDependency: true);
+        fixture.InstallConflictingDependency();
+
+        using var session = new BootstrapSession();
+        var result = session.Start(fixture.GameDirectory);
+
+        Assert(result.LoadedPluginCount == 0 && result.FailedPluginCount == 1, "Conflicting dependencies did not stop the plugin scan.");
+        Assert(!File.Exists(Path.Combine(result.InsiderDirectory, "fixture-loaded.txt")), "Plugin ran despite conflicting dependencies.");
+        Assert(
+            File.ReadAllText(result.LogPath).Contains("conflicting assemblies for 'Insider.DependencyFixture'", StringComparison.Ordinal),
+            "Dependency conflict was not diagnosed.");
+    }
+
+    private static void FailsClosedOnUnsupportedManagedRuntime()
+    {
+        using var fixture = BootstrapFixtureWorkspace.Create(withMonoRuntime: false);
+        using var environment = EnvironmentVariableScope.Clear("DOORSTOP_MONO_LIB_PATH");
+        fixture.InstallPluginFixture();
+
+        using var session = new BootstrapSession();
+        var result = session.Start(fixture.GameDirectory);
+
+        Assert(!result.IsSupported, "Unknown runtime was incorrectly accepted.");
+        Assert(result.Runtime.Backend == InsiderRuntimeBackend.Unknown, "Unexpected runtime backend.");
+        Assert(result.LoadedPluginCount == 0 && result.FailedPluginCount == 0, "Plugins were scanned on an unsupported runtime.");
+        Assert(!File.Exists(Path.Combine(result.InsiderDirectory, "fixture-loaded.txt")), "Plugin ran on an unsupported runtime.");
+        Assert(File.ReadAllText(result.LogPath).Contains("is not supported by this build", StringComparison.Ordinal), "Unsupported runtime was not logged.");
     }
 
     private static void InstallsAndRestoresExistingProxy()
@@ -133,7 +345,15 @@ internal static class Program
     {
         ValidPlugin.LoadCount = 0;
         FailingPlugin.UnloadCount = 0;
+        MissingRequiredDependencyPlugin.LoadCount = 0;
+        FailingDependentPlugin.LoadCount = 0;
+        OptionalDependencyPlugin.LoadCount = 0;
+        InvalidVersionPlugin.LoadCount = 0;
+        InvalidMinimumVersionPlugin.LoadCount = 0;
+        RequiresNewerFoundationPlugin.LoadCount = 0;
+        OptionalNewerFoundationPlugin.LoadCount = 0;
         LifecycleEvents.Clear();
+        PluginGraphEvents.Clear();
     }
 
     private static void Assert(bool condition, string message)
@@ -160,6 +380,109 @@ internal static class Program
     }
 
     public static List<string> LifecycleEvents { get; } = new List<string>();
+
+    public static List<string> PluginGraphEvents { get; } = new List<string>();
+}
+
+internal sealed class BootstrapFixtureWorkspace : IDisposable
+{
+    private BootstrapFixtureWorkspace(string rootDirectory, string gameDirectory, string pluginDirectory, string dependencyDirectory)
+    {
+        RootDirectory = rootDirectory;
+        GameDirectory = gameDirectory;
+        PluginDirectory = pluginDirectory;
+        DependencyDirectory = dependencyDirectory;
+    }
+
+    public string RootDirectory { get; }
+
+    public string GameDirectory { get; }
+
+    public string PluginDirectory { get; }
+
+    public string DependencyDirectory { get; }
+
+    public static BootstrapFixtureWorkspace Create(bool withMonoRuntime)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "insider-bootstrap-tests", Guid.NewGuid().ToString("N"));
+        var gameDirectory = Path.Combine(root, "game");
+        var pluginDirectory = Path.Combine(gameDirectory, "Insider", "plugins");
+        var dependencyDirectory = Path.Combine(pluginDirectory, "dependencies");
+
+        Directory.CreateDirectory(pluginDirectory);
+        Directory.CreateDirectory(dependencyDirectory);
+        if (withMonoRuntime)
+        {
+            Directory.CreateDirectory(Path.Combine(gameDirectory, "MonoBleedingEdge"));
+        }
+
+        return new BootstrapFixtureWorkspace(root, gameDirectory, pluginDirectory, dependencyDirectory);
+    }
+
+    public void InstallPluginFixture(bool includeDependency = true)
+    {
+        File.Copy(
+            GetFixturePath("bootstrap", "Insider.PluginFixture.dll"),
+            Path.Combine(PluginDirectory, "Insider.PluginFixture.dll"));
+
+        if (includeDependency)
+        {
+            File.Copy(
+                GetFixturePath("dependencies", "v1", "Insider.DependencyFixture.dll"),
+                Path.Combine(DependencyDirectory, "Insider.DependencyFixture.dll"));
+        }
+    }
+
+    public void InstallConflictingDependency()
+    {
+        var conflictDirectory = Path.Combine(DependencyDirectory, "conflict-v2");
+        Directory.CreateDirectory(conflictDirectory);
+        File.Copy(
+            GetFixturePath("dependencies", "v2", "Insider.DependencyFixture.dll"),
+            Path.Combine(conflictDirectory, "Insider.DependencyFixture.dll"));
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(RootDirectory))
+        {
+            Directory.Delete(RootDirectory, recursive: true);
+        }
+    }
+
+    private static string GetFixturePath(params string[] parts)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "fixtures");
+        foreach (var part in parts)
+        {
+            path = Path.Combine(path, part);
+        }
+
+        return path;
+    }
+}
+
+internal sealed class EnvironmentVariableScope : IDisposable
+{
+    private readonly string _name;
+    private readonly string? _originalValue;
+
+    private EnvironmentVariableScope(string name)
+    {
+        _name = name;
+        _originalValue = Environment.GetEnvironmentVariable(name);
+        Environment.SetEnvironmentVariable(name, null);
+    }
+
+    public static EnvironmentVariableScope Clear(string name)
+    {
+        return new EnvironmentVariableScope(name);
+    }
+
+    public void Dispose()
+    {
+        Environment.SetEnvironmentVariable(_name, _originalValue);
+    }
 }
 
 internal sealed class InstallationFixture : IDisposable
@@ -267,6 +590,19 @@ public sealed class FailingPlugin : IInsiderPlugin
     }
 }
 
+[InsiderPlugin("dev.insider.tests.logging", "Logging", "1.0.0")]
+public sealed class LoggingPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        context.Logger.Info("hello");
+    }
+
+    public void Unload()
+    {
+    }
+}
+
 [InsiderPlugin("dev.insider.tests.a", "A", "1.0.0")]
 public sealed class OrderedPluginA : IInsiderPlugin
 {
@@ -293,21 +629,197 @@ public sealed class OrderedPluginB : IInsiderPlugin
     }
 }
 
+[InsiderPlugin("dev.insider.tests.foundation", "Foundation", "1.0.0")]
+public sealed class FoundationPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        Program.PluginGraphEvents.Add("foundation");
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.dependent", "Dependent", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.foundation", "1.0.0")]
+public sealed class DependentPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        Program.PluginGraphEvents.Add("dependent");
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.invalid-version", "Invalid Version", "1.0")]
+public sealed class InvalidVersionPlugin : IInsiderPlugin
+{
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.invalid-minimum", "Invalid Minimum", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.foundation", "1.0")]
+public sealed class InvalidMinimumVersionPlugin : IInsiderPlugin
+{
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.requires-newer", "Requires Newer", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.foundation", "2.0.0")]
+public sealed class RequiresNewerFoundationPlugin : IInsiderPlugin
+{
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.optional-newer", "Optional Newer", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.foundation", "2.0.0", optional: true)]
+public sealed class OptionalNewerFoundationPlugin : IInsiderPlugin
+{
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.missing-required", "Missing Required", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.not-installed")]
+public sealed class MissingRequiredDependencyPlugin : IInsiderPlugin
+{
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.cycle-a", "Cycle A", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.cycle-b")]
+public sealed class CyclicPluginA : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.cycle-b", "Cycle B", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.cycle-a")]
+public sealed class CyclicPluginB : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.failing-dependent", "Failing Dependent", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.failing")]
+public sealed class FailingDependentPlugin : IInsiderPlugin
+{
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.optional", "Optional", "1.0.0")]
+[InsiderPluginDependency("dev.insider.tests.foundation", "1.0.0", optional: true)]
+public sealed class OptionalDependencyPlugin : IInsiderPlugin
+{
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
+        Program.PluginGraphEvents.Add("optional");
+    }
+
+    public void Unload()
+    {
+    }
+}
+
 internal sealed class TestContext : IInsiderContext
 {
+    public TestContext()
+    {
+        CapturedLogger = new TestLogger();
+        Logger = CapturedLogger;
+    }
+
     public string GameDirectory { get; } = "/game";
 
     public string InsiderDirectory { get; } = "/game/Insider";
 
-    public IInsiderLogger Logger { get; } = new TestLogger();
+    public IInsiderLogger Logger { get; }
+
+    public TestLogger CapturedLogger { get; }
 
     public IInsiderRuntimeInfo Runtime { get; } = new TestRuntimeInfo();
 }
 
 internal sealed class TestLogger : IInsiderLogger
 {
+    public List<string> Messages { get; } = new List<string>();
+
     public void Log(InsiderLogLevel level, string message, Exception? exception = null)
     {
+        Messages.Add(message);
     }
 }
 
