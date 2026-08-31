@@ -80,7 +80,12 @@ internal static class Bootstrapper
 
     private static string ResolveGameDirectory()
     {
-        var processPath = Environment.GetEnvironmentVariable("DOORSTOP_PROCESS_PATH");
+        var processPath = Environment.GetEnvironmentVariable("INSIDER_PROCESS_PATH");
+        if (string.IsNullOrWhiteSpace(processPath))
+        {
+            processPath = Environment.GetEnvironmentVariable("DOORSTOP_PROCESS_PATH");
+        }
+
         if (!string.IsNullOrWhiteSpace(processPath))
         {
             var directory = Path.GetDirectoryName(Path.GetFullPath(processPath));

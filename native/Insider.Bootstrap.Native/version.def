@@ -1,0 +1,20 @@
+LIBRARY version
+
+EXPORTS
+    GetFileVersionInfoA=KERNELBASE.GetFileVersionInfoA
+    GetFileVersionInfoByHandle=KERNELBASE.GetFileVersionInfoByHandle
+    GetFileVersionInfoExA=KERNELBASE.GetFileVersionInfoExA
+    GetFileVersionInfoExW=KERNELBASE.GetFileVersionInfoExW
+    GetFileVersionInfoSizeA=KERNELBASE.GetFileVersionInfoSizeA
+    GetFileVersionInfoSizeExA=KERNELBASE.GetFileVersionInfoSizeExA
+    GetFileVersionInfoSizeExW=KERNELBASE.GetFileVersionInfoSizeExW
+    GetFileVersionInfoSizeW=KERNELBASE.GetFileVersionInfoSizeW
+    GetFileVersionInfoW=KERNELBASE.GetFileVersionInfoW
+    VerFindFileA=KERNELBASE.VerFindFileA
+    VerFindFileW=KERNELBASE.VerFindFileW
+    VerInstallFileA=InsiderVerInstallFileA
+    VerInstallFileW=InsiderVerInstallFileW
+    VerLanguageNameA=KERNELBASE.VerLanguageNameA
+    VerLanguageNameW=KERNELBASE.VerLanguageNameW
+    VerQueryValueA=KERNELBASE.VerQueryValueA
+    VerQueryValueW=KERNELBASE.VerQueryValueW

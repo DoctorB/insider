@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Insider.Abstractions/Insider.Abstractions.csproj" />
+    <ProjectReference Include="../../src/Insider.Installation/Insider.Installation.csproj" />
     <ProjectReference Include="../../src/Insider.Loader/Insider.Loader.csproj" />
   </ItemGroup>
 </Project>

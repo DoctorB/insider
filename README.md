@@ -26,16 +26,18 @@ backends. They are not supported yet.
 
 ```text
 Unity game
-  -> native bootstrap
+  -> Insider native version.dll proxy
   -> Insider.Bootstrap
   -> Insider.Loader
   -> managed plugins
   -> runtime hooking backend
 ```
 
-The native bootstrap is a replaceable boundary. The first integration target is
-[UnityDoorstop](https://github.com/NeighTools/UnityDoorstop), but Insider does
-not depend on BepInEx or another full mod loader.
+The first native bootstrap is owned by Insider. On Windows x64 it proxies the
+system `version.dll`, waits for Unity's Mono runtime, and invokes the managed
+entry point through Mono's embedding API. Insider does not depend on BepInEx or
+another mod loader. A Doorstop-compatible managed adapter remains available for
+integration testing and migration only.
 
 See [docs/architecture.md](docs/architecture.md) for the component boundaries
 and [docs/compatibility.md](docs/compatibility.md) for the support policy.
@@ -44,11 +46,34 @@ and [docs/compatibility.md](docs/compatibility.md) for the support policy.
 
 ```text
 src/       Maintained loader, SDK, bootstrap, and tooling
+native/    Insider-owned Windows process bootstrap
 tests/     Dependency-free executable test suite
 samples/   Example plugins
 legacy/    Archived Insider v1 source; never shipped or built
 docs/      Architecture, compatibility, and design decisions
 ```
+
+## Install a CI build
+
+Download the `Insider-windows-x64` artifact from the latest successful GitHub
+Actions run, extract it outside the game directory, and run:
+
+```powershell
+dotnet insider.dll inspect "C:\Games\Example\Example.exe"
+dotnet insider.dll install "C:\Games\Example\Example.exe"
+dotnet insider.dll status "C:\Games\Example\Example.exe"
+```
+
+To remove Insider and restore a pre-existing root `version.dll`:
+
+```powershell
+dotnet insider.dll uninstall "C:\Games\Example\Example.exe"
+```
+
+Installation is deliberately limited to detected Windows x64 Unity/Mono games.
+It records hashes in `Insider/install.json`, never removes plugins or logs, and
+refuses to uninstall modified loader files unless `--force` is explicitly used.
+The pre-alpha CLI package requires the .NET 10 runtime.
 
 ## Build
 
@@ -58,6 +83,13 @@ loader target .NET Standard 2.0 for compatibility with modern Unity Mono games.
 ```powershell
 dotnet build Insider.slnx --configuration Release
 dotnet run --project tests/Insider.Tests --configuration Release --no-build
+```
+
+The native bootstrap uses CMake and the MSVC x64 toolchain:
+
+```powershell
+cmake -S native -B artifacts/native-build -A x64
+cmake --build artifacts/native-build --config Release
 ```
 
 ## Plugin model

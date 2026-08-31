@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using Insider.Installation;
 using Insider.Loader;
 
 namespace Insider.Tests;
@@ -15,6 +17,8 @@ internal static class Program
             ("rejects missing metadata", RejectsMissingMetadata),
             ("contains plugin load failures", ContainsLoadFailure),
             ("unloads plugins in reverse order", UnloadsInReverseOrder),
+            ("installs and uninstalls without losing an existing proxy", InstallsAndRestoresExistingProxy),
+            ("refuses to remove modified installation files", RefusesToRemoveModifiedFiles),
         };
 
         var failed = 0;
@@ -83,6 +87,43 @@ internal static class Program
         Assert(host.LoadedPlugins.Count == 0, "Registry was not cleared after unload.");
     }
 
+    private static void InstallsAndRestoresExistingProxy()
+    {
+        using var fixture = InstallationFixture.Create(withExistingProxy: true);
+        var installer = new InsiderInstaller();
+
+        var installed = installer.Install(fixture.GameExecutable, fixture.BundleDirectory);
+
+        Assert(installed.State == InsiderInstallationState.Installed, "Installation did not report success.");
+        Assert(File.ReadAllText(Path.Combine(fixture.GameDirectory, "version.dll")) == "insider-native", "Native proxy was not installed.");
+        Assert(Directory.Exists(Path.Combine(fixture.GameDirectory, "Insider", "plugins")), "Plugin directory was not created.");
+
+        var removed = installer.Uninstall(fixture.GameExecutable);
+
+        Assert(removed.State == InsiderInstallationState.NotInstalled, "Uninstall did not complete.");
+        Assert(File.ReadAllText(Path.Combine(fixture.GameDirectory, "version.dll")) == "original-proxy", "Original proxy was not restored.");
+        Assert(!File.Exists(Path.Combine(fixture.GameDirectory, "Insider", "install.json")), "Manifest was not removed.");
+    }
+
+    private static void RefusesToRemoveModifiedFiles()
+    {
+        using var fixture = InstallationFixture.Create(withExistingProxy: false);
+        var installer = new InsiderInstaller();
+        installer.Install(fixture.GameExecutable, fixture.BundleDirectory);
+
+        var modifiedPath = Path.Combine(fixture.GameDirectory, "Insider", "core", "Insider.Loader.dll");
+        File.WriteAllText(modifiedPath, "modified-by-user");
+
+        AssertThrows<InsiderInstallationException>(() => installer.Uninstall(fixture.GameExecutable));
+        Assert(File.Exists(modifiedPath), "Modified file was removed without --force.");
+        Assert(
+            installer.GetStatus(fixture.GameExecutable).State == InsiderInstallationState.Damaged,
+            "Modified installation was not reported as damaged.");
+
+        installer.Uninstall(fixture.GameExecutable, force: true);
+        Assert(!File.Exists(modifiedPath), "Forced uninstall did not remove the modified file.");
+    }
+
     private static PluginHost CreateHost()
     {
         return new PluginHost(new TestContext());
@@ -103,7 +144,73 @@ internal static class Program
         }
     }
 
+    private static void AssertThrows<TException>(Action action)
+        where TException : Exception
+    {
+        try
+        {
+            action();
+        }
+        catch (TException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException($"Expected {typeof(TException).Name} was not thrown.");
+    }
+
     public static List<string> LifecycleEvents { get; } = new List<string>();
+}
+
+internal sealed class InstallationFixture : IDisposable
+{
+    private InstallationFixture(string rootDirectory, string gameDirectory, string gameExecutable, string bundleDirectory)
+    {
+        RootDirectory = rootDirectory;
+        GameDirectory = gameDirectory;
+        GameExecutable = gameExecutable;
+        BundleDirectory = bundleDirectory;
+    }
+
+    public string RootDirectory { get; }
+
+    public string GameDirectory { get; }
+
+    public string GameExecutable { get; }
+
+    public string BundleDirectory { get; }
+
+    public static InstallationFixture Create(bool withExistingProxy)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "insider-tests", Guid.NewGuid().ToString("N"));
+        var gameDirectory = Path.Combine(root, "game");
+        var bundleDirectory = Path.Combine(root, "bundle");
+        var gameExecutable = Path.Combine(gameDirectory, "TestGame.exe");
+
+        Directory.CreateDirectory(gameDirectory);
+        Directory.CreateDirectory(Path.Combine(bundleDirectory, "native", "win-x64"));
+        Directory.CreateDirectory(Path.Combine(bundleDirectory, "core"));
+        File.WriteAllText(gameExecutable, "test-game");
+        File.WriteAllText(Path.Combine(bundleDirectory, "native", "win-x64", "version.dll"), "insider-native");
+        File.WriteAllText(Path.Combine(bundleDirectory, "core", "Insider.Abstractions.dll"), "abstractions");
+        File.WriteAllText(Path.Combine(bundleDirectory, "core", "Insider.Loader.dll"), "loader");
+        File.WriteAllText(Path.Combine(bundleDirectory, "core", "Insider.Bootstrap.dll"), "bootstrap");
+
+        if (withExistingProxy)
+        {
+            File.WriteAllText(Path.Combine(gameDirectory, "version.dll"), "original-proxy");
+        }
+
+        return new InstallationFixture(root, gameDirectory, gameExecutable, bundleDirectory);
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(RootDirectory))
+        {
+            Directory.Delete(RootDirectory, recursive: true);
+        }
+    }
 }
 
 [InsiderPlugin("dev.insider.tests.valid", "Valid", "1.0.0")]

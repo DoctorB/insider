@@ -5,7 +5,7 @@ hooking so each layer can evolve without changing the plugin contract.
 
 ```text
 Unity executable
-  -> native bootstrap adapter
+  -> Insider native version.dll proxy
   -> Insider.Bootstrap
   -> runtime detection
   -> Insider.Loader
@@ -31,14 +31,24 @@ to the affected plugin whenever possible.
 
 The earliest managed entry point. It resolves the game and Insider directories,
 creates diagnostics, detects the scripting backend, and starts the chainloader.
-The exported `Doorstop.Entrypoint.Start()` method is an adapter boundary rather
-than a dependency on a full mod loader.
+The native loader invokes `Insider.Native.Entrypoint.Start()` through Mono's
+embedding API. The exported `Doorstop.Entrypoint.Start()` method is retained as
+a compatibility adapter rather than a dependency on a full mod loader.
 
-### Insider.Cli
+### Insider.Bootstrap.Native
 
-Out-of-process tooling for inspecting and eventually installing or removing
-Insider. Installation is not implemented until the exact native bootstrap bundle
-and provenance rules are defined.
+The Insider-owned Windows x64 process entry layer. It is installed as a local
+`version.dll`, forwards the Windows version-information API to the operating
+system, waits for Unity's existing Mono runtime, attaches its bootstrap thread,
+and invokes the managed entry point. It does not ship or initialize a second
+Mono runtime.
+
+### Insider.Installation and Insider.Cli
+
+Out-of-process tooling for inspecting, installing, verifying, and removing
+Insider. Installations are described by a manifest containing SHA-256 hashes.
+An existing root `version.dll` is preserved and restored; unknown core files are
+never overwritten.
 
 ### Runtime hooking backend
 
@@ -48,7 +58,7 @@ as the production backend.
 
 ## Design rules
 
-- Plugin APIs must not expose Doorstop or another loader implementation.
+- Plugin APIs must not expose the native bootstrap or another loader implementation.
 - Compatibility is declared per scripting backend, operating system, and process
   architecture.
 - Native crashes are tested in child processes, never inside the unit-test host.

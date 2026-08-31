@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Insider.Installation</AssemblyName>
+    <RootNamespace>Insider.Installation</RootNamespace>
+    <Description>Safe installation and removal engine for Insider.</Description>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+</Project>

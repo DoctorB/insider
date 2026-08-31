@@ -7,4 +7,8 @@
     <Description>Inspection and installation tooling for Insider.</Description>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Insider.Installation/Insider.Installation.csproj" />
+  </ItemGroup>
 </Project>

@@ -1,6 +1,6 @@
 # ADR 0002: Keep the native bootstrap replaceable
 
-- Status: Accepted
+- Status: Superseded by ADR 0003
 - Date: 2026-08-31
 
 ## Context
