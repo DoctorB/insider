@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>Insider.Bootstrap</AssemblyName>
+    <RootNamespace>Insider.Bootstrap</RootNamespace>
+    <Description>Doorstop-compatible managed bootstrap for Insider.</Description>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Insider.Abstractions/Insider.Abstractions.csproj" />
+    <ProjectReference Include="../Insider.Loader/Insider.Loader.csproj" />
+  </ItemGroup>
+</Project>

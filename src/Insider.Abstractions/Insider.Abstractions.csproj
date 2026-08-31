@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>Insider.Abstractions</AssemblyName>
+    <RootNamespace>Insider</RootNamespace>
+    <Description>Plugin contracts for the Insider Unity mod loader.</Description>
+    <PackageId>Insider.Unity.Abstractions</PackageId>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Insider.Abstractions/Insider.Abstractions.csproj" />
+    <Project Path="src/Insider.Bootstrap/Insider.Bootstrap.csproj" />
+    <Project Path="src/Insider.Cli/Insider.Cli.csproj" />
+    <Project Path="src/Insider.Loader/Insider.Loader.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/HelloInsider/HelloInsider.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Insider.Tests/Insider.Tests.csproj" />
+  </Folder>
+</Solution>
