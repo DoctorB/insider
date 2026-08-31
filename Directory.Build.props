@@ -6,8 +6,9 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
-    <Authors>DoctorB and Insider contributors</Authors>
+    <Authors>Luca Bottani</Authors>
     <Company>Insider contributors</Company>
+    <Copyright>Copyright © 2016-2026 Luca Bottani</Copyright>
     <Product>Insider Mod Loader</Product>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/DoctorB/insider</RepositoryUrl>

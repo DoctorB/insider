@@ -96,3 +96,8 @@ There is no security sandbox. Only install plugins you trust. See
 Insider is licensed under the [Apache License 2.0](LICENSE). Third-party
 components retain their respective licenses; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Author
+
+Created and maintained by Luca Bottani, known on GitHub as
+[@DoctorB](https://github.com/DoctorB).
