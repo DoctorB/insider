@@ -40,7 +40,9 @@ another mod loader. A Doorstop-compatible managed adapter remains available for
 integration testing and migration only.
 
 See [docs/architecture.md](docs/architecture.md) for the component boundaries
-and [docs/compatibility.md](docs/compatibility.md) for the support policy.
+and [docs/compatibility.md](docs/compatibility.md) for the support policy. The
+[testing strategy](docs/testing.md) explains what is automated without a game
+fixture and what still requires a real Unity player.
 
 ## Repository layout
 
@@ -90,6 +92,7 @@ The native bootstrap uses CMake and the MSVC x64 toolchain:
 ```powershell
 cmake -S native -B artifacts/native-build -A x64
 cmake --build artifacts/native-build --config Release
+ctest --test-dir artifacts/native-build --build-config Release --output-on-failure
 ```
 
 ## Plugin model

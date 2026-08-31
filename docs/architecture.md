@@ -70,3 +70,11 @@ as the production backend.
 
 There is no in-process security boundary between a plugin, Insider, and the game.
 The loader validates metadata and lifecycle, not plugin intent.
+
+## Test boundary
+
+The native fixture provides an Insider-owned module with the same seven Mono
+embedding exports consumed by the bootstrap. This checks ABI lookup and call
+sequencing without redistributing Unity or Mono. It is a deterministic contract
+test, not evidence that a specific Unity version or game is supported. See
+[testing.md](testing.md).

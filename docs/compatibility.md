@@ -5,7 +5,7 @@ test evidence. A Unity version alone is not a sufficient compatibility claim.
 
 | Backend | Operating system | Architecture | Status |
 | --- | --- | --- | --- |
-| Unity Mono | Windows | x64 | Experimental; bootstrap and packaging implemented, game fixtures pending |
+| Unity Mono | Windows | x64 | Experimental; ABI fixture automated, real game validation pending |
 | Unity Mono | Windows | x86 | Planned |
 | Unity Mono | Linux/macOS | Any | Planned |
 | Unity IL2CPP | Any | Any | Not implemented |
@@ -30,6 +30,10 @@ The experimental Windows x64 bootstrap relies on the game loading a local
 `mono-2.0-bdwgc.dll`, `mono-2.0-sgen.dll`, or `mono.dll`. Games that do not meet
 both conditions require a different bootstrap adapter and are not currently
 supported.
+
+The automated fake-Mono fixture validates only the embedding calls made by the
+native bootstrap. It does not execute managed assemblies or model Unity's main
+thread and therefore does not change the support status by itself.
 
 ## Legacy Insider v1
 
