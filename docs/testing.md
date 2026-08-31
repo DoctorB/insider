@@ -59,13 +59,34 @@ checks the native bootstrap, managed core, CLI runtime files and package README;
 requires license notices; rejects test assemblies and source files; and runs the
 packaged CLI help command.
 
+### Real Unity Mono smoke test
+
+`eng/Test-UnityMonoSmoke.ps1` builds a minimal player with Unity `2022.3.62f2`,
+the Windows x64 target, and the Mono scripting backend. It then builds the
+Insider native and managed components, assembles a package, installs it into the
+generated player, copies a test plugin, and launches the player in batch mode.
+
+The test succeeds only when all of these observations are present:
+
+1. Unity starts and exits normally after the fixture delay;
+2. `version.dll` finds the real Unity Mono runtime;
+3. the managed bootstrap reports `UnityMono` and `x64`;
+4. the test plugin writes its load marker and scoped log message;
+5. the plugin writes its unload marker during process exit;
+6. the installed files still pass the CLI status check.
+
+This test is local rather than part of GitHub Actions because it needs an
+installed and licensed Unity Editor. Its generated project state, package, and
+player stay below `artifacts/unity-mono-smoke` or ignored Unity directories.
+
 ## What the fixture does not prove
 
 The fake native runtime cannot execute managed IL or reproduce Unity's Mono
-fork. The managed fixture executes IL on the test host, but does not enter
-through the native proxy or validate Unity main-thread behavior. A real Windows
-x64 Unity/Mono player is still required before compatibility can move from
-experimental to supported.
+fork. The real-player fixture covers one Unity release and a deliberately empty
+game, but it does not validate game-specific behavior, Unity main-thread APIs,
+runtime method hooks, anti-cheat interaction, or other Unity/Mono versions.
+Broader real-player evidence is still required before compatibility can move
+from experimental to supported.
 
 ## Run locally
 
@@ -78,4 +99,11 @@ cmake --build artifacts/native-build --config Release
 ctest --test-dir artifacts/native-build --build-config Release --output-on-failure
 
 ./eng/Test-WindowsPackage.ps1 -PackageDirectory artifacts/Insider-windows-x64
+
+./eng/Test-UnityMonoSmoke.ps1
 ```
+
+The Unity smoke script defaults to the Unity Hub installation at
+`C:\Program Files\Unity\Hub\Editor\2022.3.62f2`. Pass `-UnityEditor` to use
+another executable. It locates CMake from `PATH` or the latest Visual Studio
+installation; `-CMake` can override that path when needed.

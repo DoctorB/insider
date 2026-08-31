@@ -104,6 +104,21 @@ Run the same check locally with:
 ./eng/Test-WindowsPackage.ps1 -PackageDirectory artifacts/Insider-windows-x64
 ```
 
+A local smoke fixture builds and launches a real Unity 2022.3 Windows x64
+player using the Mono scripting backend. It installs Insider, loads a test
+plugin, verifies native and managed diagnostics, and checks plugin unload on
+process exit:
+
+```powershell
+./eng/Test-UnityMonoSmoke.ps1
+```
+
+The script uses Unity `2022.3.62f2` from its default Unity Hub location unless
+`-UnityEditor` is supplied. Generated player files remain under
+`artifacts/unity-mono-smoke` and are not committed. This single fixture keeps
+the backend experimental; it is evidence for one controlled player, not a
+general Unity compatibility claim.
+
 ## Plugin model
 
 Plugins implement `IInsiderPlugin` and declare metadata with

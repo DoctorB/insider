@@ -32,3 +32,6 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   logger.
 - CI verification of required Windows package files and license notices,
   test/source exclusions, and the packaged CLI entry point.
+- Local Unity 2022.3 Windows x64 Mono smoke player covering the complete native
+  bootstrap, managed loader, plugin load/unload, diagnostics, and installer
+  status path.

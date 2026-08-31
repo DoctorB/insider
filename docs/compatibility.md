@@ -5,7 +5,7 @@ test evidence. A Unity version alone is not a sufficient compatibility claim.
 
 | Backend | Operating system | Architecture | Status |
 | --- | --- | --- | --- |
-| Unity Mono | Windows | x64 | Experimental; ABI fixture automated, real game validation pending |
+| Unity Mono | Windows | x64 | Experimental; real-player smoke passed on Unity 2022.3.62f2 |
 | Unity Mono | Windows | x86 | Planned |
 | Unity Mono | Linux/macOS | Any | Planned |
 | Unity IL2CPP | Any | Any | Not implemented |
@@ -34,6 +34,20 @@ supported.
 The automated fake-Mono fixture validates only the embedding calls made by the
 native bootstrap. It does not execute managed assemblies or model Unity's main
 thread and therefore does not change the support status by itself.
+
+## Real-player evidence
+
+The local `UnityMonoSmoke` fixture builds a development player with Unity
+`2022.3.62f2`, the Mono scripting backend, and the Windows x64 target. On
+2026-08-31 it verified the complete path from the local `version.dll` proxy to
+the managed bootstrap, plugin discovery, plugin load, process-exit unload, and
+persistent native and managed logs.
+
+The fixture is repeatable through `eng/Test-UnityMonoSmoke.ps1`, but it is not
+run in GitHub Actions because hosted execution would require a Unity Editor and
+license. One controlled player does not establish compatibility with other
+Unity releases, game-specific native imports, anti-cheat systems, or modified
+Mono runtimes, so the backend remains experimental.
 
 ## Managed dependency constraints
 

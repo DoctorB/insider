@@ -98,5 +98,10 @@ The loader validates metadata and lifecycle, not plugin intent.
 The native fixture provides an Insider-owned module with the same seven Mono
 embedding exports consumed by the bootstrap. Managed fixtures separately cover
 real assembly discovery, exact dependency resolution, missing dependencies, and
-version conflicts. These are deterministic contract tests, not evidence that a
-specific Unity version or game is supported. See [testing.md](testing.md).
+version conflicts. These deterministic contract tests run in CI.
+
+A separate local fixture builds a real Unity 2022.3 Windows x64 Mono player and
+proves that the native proxy can enter the existing Mono domain, start the
+managed loader, load one plugin, and unload it during process exit. It closes
+the basic integration gap without turning one Unity version into a broad
+support claim. See [testing.md](testing.md).
