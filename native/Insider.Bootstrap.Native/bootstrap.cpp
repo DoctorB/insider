@@ -286,6 +286,282 @@ namespace
         InitOnceExecuteOnce(&g_system_version_once, LoadSystemVersionModule, nullptr, nullptr);
         return g_system_version;
     }
+
+    template <typename TFunction>
+    bool ResolveVersionExport(const char* name, TFunction& function)
+    {
+        const auto kernel_base = GetModuleHandleW(L"kernelbase.dll");
+        if (kernel_base != nullptr && ResolveExport(kernel_base, name, function))
+        {
+            return true;
+        }
+
+        const auto system_version = GetSystemVersionModule();
+        return system_version != nullptr && ResolveExport(system_version, name, function);
+    }
+}
+
+extern "C" BOOL WINAPI InsiderGetFileVersionInfoA(
+    LPCSTR file_name,
+    DWORD handle,
+    DWORD length,
+    LPVOID data)
+{
+    using Function = decltype(&::GetFileVersionInfoA);
+    Function function = nullptr;
+    if (!ResolveVersionExport("GetFileVersionInfoA", function))
+    {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return FALSE;
+    }
+
+    return function(file_name, handle, length, data);
+}
+
+extern "C" BOOL WINAPI InsiderGetFileVersionInfoW(
+    LPCWSTR file_name,
+    DWORD handle,
+    DWORD length,
+    LPVOID data)
+{
+    using Function = decltype(&::GetFileVersionInfoW);
+    Function function = nullptr;
+    if (!ResolveVersionExport("GetFileVersionInfoW", function))
+    {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return FALSE;
+    }
+
+    return function(file_name, handle, length, data);
+}
+
+extern "C" BOOL WINAPI InsiderGetFileVersionInfoByHandle(
+    DWORD flags,
+    HANDLE file,
+    LPVOID* data,
+    PDWORD length)
+{
+    using Function = BOOL (WINAPI*)(DWORD, HANDLE, LPVOID*, PDWORD);
+    Function function = nullptr;
+    if (!ResolveVersionExport("GetFileVersionInfoByHandle", function))
+    {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return FALSE;
+    }
+
+    return function(flags, file, data, length);
+}
+
+extern "C" BOOL WINAPI InsiderGetFileVersionInfoExA(
+    DWORD flags,
+    LPCSTR file_name,
+    DWORD handle,
+    DWORD length,
+    LPVOID data)
+{
+    using Function = decltype(&::GetFileVersionInfoExA);
+    Function function = nullptr;
+    if (!ResolveVersionExport("GetFileVersionInfoExA", function))
+    {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return FALSE;
+    }
+
+    return function(flags, file_name, handle, length, data);
+}
+
+extern "C" BOOL WINAPI InsiderGetFileVersionInfoExW(
+    DWORD flags,
+    LPCWSTR file_name,
+    DWORD handle,
+    DWORD length,
+    LPVOID data)
+{
+    using Function = decltype(&::GetFileVersionInfoExW);
+    Function function = nullptr;
+    if (!ResolveVersionExport("GetFileVersionInfoExW", function))
+    {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return FALSE;
+    }
+
+    return function(flags, file_name, handle, length, data);
+}
+
+extern "C" DWORD WINAPI InsiderGetFileVersionInfoSizeA(LPCSTR file_name, LPDWORD handle)
+{
+    using Function = decltype(&::GetFileVersionInfoSizeA);
+    Function function = nullptr;
+    if (!ResolveVersionExport("GetFileVersionInfoSizeA", function))
+    {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return 0;
+    }
+
+    return function(file_name, handle);
+}
+
+extern "C" DWORD WINAPI InsiderGetFileVersionInfoSizeW(LPCWSTR file_name, LPDWORD handle)
+{
+    using Function = decltype(&::GetFileVersionInfoSizeW);
+    Function function = nullptr;
+    if (!ResolveVersionExport("GetFileVersionInfoSizeW", function))
+    {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return 0;
+    }
+
+    return function(file_name, handle);
+}
+
+extern "C" DWORD WINAPI InsiderGetFileVersionInfoSizeExA(
+    DWORD flags,
+    LPCSTR file_name,
+    LPDWORD handle)
+{
+    using Function = decltype(&::GetFileVersionInfoSizeExA);
+    Function function = nullptr;
+    if (!ResolveVersionExport("GetFileVersionInfoSizeExA", function))
+    {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return 0;
+    }
+
+    return function(flags, file_name, handle);
+}
+
+extern "C" DWORD WINAPI InsiderGetFileVersionInfoSizeExW(
+    DWORD flags,
+    LPCWSTR file_name,
+    LPDWORD handle)
+{
+    using Function = decltype(&::GetFileVersionInfoSizeExW);
+    Function function = nullptr;
+    if (!ResolveVersionExport("GetFileVersionInfoSizeExW", function))
+    {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return 0;
+    }
+
+    return function(flags, file_name, handle);
+}
+
+extern "C" DWORD WINAPI InsiderVerFindFileA(
+    DWORD flags,
+    LPCSTR file_name,
+    LPCSTR windows_directory,
+    LPCSTR application_directory,
+    LPSTR current_directory,
+    PUINT current_directory_length,
+    LPSTR destination_directory,
+    PUINT destination_directory_length)
+{
+    using Function = decltype(&::VerFindFileA);
+    Function function = nullptr;
+    if (!ResolveVersionExport("VerFindFileA", function))
+    {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return VFF_BUFFTOOSMALL;
+    }
+
+    return function(
+        flags,
+        file_name,
+        windows_directory,
+        application_directory,
+        current_directory,
+        current_directory_length,
+        destination_directory,
+        destination_directory_length);
+}
+
+extern "C" DWORD WINAPI InsiderVerFindFileW(
+    DWORD flags,
+    LPCWSTR file_name,
+    LPCWSTR windows_directory,
+    LPCWSTR application_directory,
+    LPWSTR current_directory,
+    PUINT current_directory_length,
+    LPWSTR destination_directory,
+    PUINT destination_directory_length)
+{
+    using Function = decltype(&::VerFindFileW);
+    Function function = nullptr;
+    if (!ResolveVersionExport("VerFindFileW", function))
+    {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return VFF_BUFFTOOSMALL;
+    }
+
+    return function(
+        flags,
+        file_name,
+        windows_directory,
+        application_directory,
+        current_directory,
+        current_directory_length,
+        destination_directory,
+        destination_directory_length);
+}
+
+extern "C" DWORD WINAPI InsiderVerLanguageNameA(DWORD language, LPSTR name, DWORD character_count)
+{
+    using Function = decltype(&::VerLanguageNameA);
+    Function function = nullptr;
+    if (!ResolveVersionExport("VerLanguageNameA", function))
+    {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return 0;
+    }
+
+    return function(language, name, character_count);
+}
+
+extern "C" DWORD WINAPI InsiderVerLanguageNameW(DWORD language, LPWSTR name, DWORD character_count)
+{
+    using Function = decltype(&::VerLanguageNameW);
+    Function function = nullptr;
+    if (!ResolveVersionExport("VerLanguageNameW", function))
+    {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return 0;
+    }
+
+    return function(language, name, character_count);
+}
+
+extern "C" BOOL WINAPI InsiderVerQueryValueA(
+    LPCVOID block,
+    LPCSTR sub_block,
+    LPVOID* buffer,
+    PUINT length)
+{
+    using Function = decltype(&::VerQueryValueA);
+    Function function = nullptr;
+    if (!ResolveVersionExport("VerQueryValueA", function))
+    {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return FALSE;
+    }
+
+    return function(block, sub_block, buffer, length);
+}
+
+extern "C" BOOL WINAPI InsiderVerQueryValueW(
+    LPCVOID block,
+    LPCWSTR sub_block,
+    LPVOID* buffer,
+    PUINT length)
+{
+    using Function = decltype(&::VerQueryValueW);
+    Function function = nullptr;
+    if (!ResolveVersionExport("VerQueryValueW", function))
+    {
+        SetLastError(ERROR_PROC_NOT_FOUND);
+        return FALSE;
+    }
+
+    return function(block, sub_block, buffer, length);
 }
 
 extern "C" DWORD WINAPI InsiderVerInstallFileA(
