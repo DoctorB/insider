@@ -19,3 +19,5 @@ constexpr DWORD fixture_complete =
 using FixtureState = DWORD (__cdecl*)();
 using FixtureFailure = DWORD (__cdecl*)();
 using FixtureAssemblyPath = const char* (__cdecl*)();
+using FixtureConfigure = void (__cdecl*)(DWORD root_domain_delay, BOOL invoke_exception);
+using FixtureRootRequests = DWORD (__cdecl*)();

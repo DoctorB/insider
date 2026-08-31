@@ -57,9 +57,32 @@ if(BUILD_TESTING)
   endif()
 
   add_test(
-    NAME InsiderNativeBootstrapFixture
+    NAME InsiderNativeBootstrapFixture.Success
     COMMAND InsiderNativeBootstrapFixture
+      success
       $<TARGET_FILE:InsiderFakeMonoRuntime>
       $<TARGET_FILE:InsiderBootstrapNative>)
-  set_tests_properties(InsiderNativeBootstrapFixture PROPERTIES TIMEOUT 10)
+
+  add_test(
+    NAME InsiderNativeBootstrapFixture.DelayedDomain
+    COMMAND InsiderNativeBootstrapFixture
+      delayed-domain
+      $<TARGET_FILE:InsiderFakeMonoRuntime>
+      $<TARGET_FILE:InsiderBootstrapNative>)
+
+  add_test(
+    NAME InsiderNativeBootstrapFixture.ManagedException
+    COMMAND InsiderNativeBootstrapFixture
+      managed-exception
+      $<TARGET_FILE:InsiderFakeMonoRuntime>
+      $<TARGET_FILE:InsiderBootstrapNative>)
+
+  set_tests_properties(
+    InsiderNativeProxySmoke
+    InsiderNativeBootstrapFixture.Success
+    InsiderNativeBootstrapFixture.DelayedDomain
+    InsiderNativeBootstrapFixture.ManagedException
+    PROPERTIES
+      RESOURCE_LOCK insider_native_log
+      TIMEOUT 10)
 endif()

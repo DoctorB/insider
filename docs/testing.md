@@ -30,6 +30,11 @@ the embedding exports consumed by Insider and validates this sequence:
 5. invoke the static method without arguments or an instance;
 6. publish the game executable through `INSIDER_PROCESS_PATH`.
 
+Additional scenarios make the root domain unavailable for the first three
+queries to verify polling and retry behavior, and return a managed exception
+from `mono_runtime_invoke` to verify that the bootstrap fails closed and writes
+the expected diagnostic instead of crashing the host process.
+
 The fixture contains no Unity or Mono code and is never included in release
 packages.
 

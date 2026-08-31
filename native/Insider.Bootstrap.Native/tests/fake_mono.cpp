@@ -7,6 +7,9 @@ namespace
 {
     std::atomic<DWORD> g_state = 0;
     std::atomic<DWORD> g_failure = 0;
+    std::atomic<DWORD> g_root_domain_delay = 0;
+    std::atomic<DWORD> g_root_domain_requests = 0;
+    std::atomic<BOOL> g_invoke_exception = FALSE;
     char g_assembly_path[4096] = {};
 
     int g_domain_token = 0;
@@ -15,6 +18,7 @@ namespace
     int g_image_token = 0;
     int g_class_token = 0;
     int g_method_token = 0;
+    int g_exception_token = 0;
 
     void Fail(DWORD code)
     {
@@ -30,6 +34,12 @@ namespace
 
 extern "C" __declspec(dllexport) void* __cdecl mono_get_root_domain()
 {
+    const auto request = g_root_domain_requests.fetch_add(1, std::memory_order_acq_rel) + 1;
+    if (request <= g_root_domain_delay.load(std::memory_order_acquire))
+    {
+        return nullptr;
+    }
+
     CompleteStep(fixture_root_domain_requested);
     return &g_domain_token;
 }
@@ -124,7 +134,9 @@ extern "C" __declspec(dllexport) void* __cdecl mono_runtime_invoke(
         return nullptr;
     }
 
-    *exception = nullptr;
+    *exception = g_invoke_exception.load(std::memory_order_acquire) == TRUE
+        ? &g_exception_token
+        : nullptr;
     CompleteStep(fixture_method_invoked);
     return nullptr;
 }
@@ -142,4 +154,21 @@ extern "C" __declspec(dllexport) DWORD __cdecl insider_fixture_failure()
 extern "C" __declspec(dllexport) const char* __cdecl insider_fixture_assembly_path()
 {
     return g_assembly_path;
+}
+
+extern "C" __declspec(dllexport) void __cdecl insider_fixture_configure(
+    DWORD root_domain_delay,
+    BOOL invoke_exception)
+{
+    g_state.store(0, std::memory_order_release);
+    g_failure.store(0, std::memory_order_release);
+    g_root_domain_requests.store(0, std::memory_order_release);
+    g_root_domain_delay.store(root_domain_delay, std::memory_order_release);
+    g_invoke_exception.store(invoke_exception, std::memory_order_release);
+    g_assembly_path[0] = '\0';
+}
+
+extern "C" __declspec(dllexport) DWORD __cdecl insider_fixture_root_requests()
+{
+    return g_root_domain_requests.load(std::memory_order_acquire);
 }
