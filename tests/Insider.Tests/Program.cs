@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Insider.Bootstrap;
 using Insider.Installation;
 using Insider.Loader;
+using Insider.PluginFixture;
 
 namespace Insider.Tests;
 
@@ -17,6 +19,8 @@ internal static class Program
             ("rejects missing metadata", RejectsMissingMetadata),
             ("contains plugin load failures", ContainsLoadFailure),
             ("unloads plugins in reverse order", UnloadsInReverseOrder),
+            ("bootstraps a plugin directory end to end", BootstrapsPluginDirectoryEndToEnd),
+            ("fails closed on an unsupported managed runtime", FailsClosedOnUnsupportedManagedRuntime),
             ("installs and uninstalls without losing an existing proxy", InstallsAndRestoresExistingProxy),
             ("refuses to remove modified installation files", RefusesToRemoveModifiedFiles),
         };
@@ -85,6 +89,51 @@ internal static class Program
         Assert(LifecycleEvents.Count == 2, "Unexpected number of unload events.");
         Assert(LifecycleEvents[0] == "B" && LifecycleEvents[1] == "A", "Plugins were not unloaded in reverse order.");
         Assert(host.LoadedPlugins.Count == 0, "Registry was not cleared after unload.");
+    }
+
+    private static void BootstrapsPluginDirectoryEndToEnd()
+    {
+        using var fixture = BootstrapFixtureWorkspace.Create(withMonoRuntime: true);
+        fixture.InstallPluginFixture();
+
+        using var session = new BootstrapSession();
+        var result = session.Start(fixture.GameDirectory);
+
+        Assert(result.IsSupported, "Unity Mono fixture was not recognized as supported.");
+        Assert(result.Runtime.Backend == InsiderRuntimeBackend.UnityMono, "Unexpected runtime backend.");
+        Assert(result.LoadedPluginCount == 1, "Fixture plugin was not loaded exactly once.");
+        Assert(result.FailedPluginCount == 0, "Fixture plugin load unexpectedly failed.");
+        Assert(Directory.Exists(result.PluginDirectory), "Plugin directory was not created.");
+
+        var loadedMarker = Path.Combine(result.InsiderDirectory, "fixture-loaded.txt");
+        Assert(File.Exists(loadedMarker), "Fixture plugin did not write its load marker.");
+        Assert(File.ReadAllText(loadedMarker).Contains("Backend=UnityMono", StringComparison.Ordinal), "Fixture received the wrong runtime context.");
+
+        var log = File.ReadAllText(result.LogPath);
+        Assert(log.Contains("Plugin scan completed: 1 loaded, 0 failed.", StringComparison.Ordinal), "Bootstrap summary was not logged.");
+
+        session.Stop();
+
+        Assert(File.Exists(Path.Combine(result.InsiderDirectory, "fixture-unloaded.txt")), "Fixture plugin was not unloaded.");
+        Assert(File.ReadAllText(result.LogPath).Contains("Insider bootstrap stopped.", StringComparison.Ordinal), "Bootstrap shutdown was not logged.");
+
+        session.Stop();
+    }
+
+    private static void FailsClosedOnUnsupportedManagedRuntime()
+    {
+        using var fixture = BootstrapFixtureWorkspace.Create(withMonoRuntime: false);
+        using var environment = EnvironmentVariableScope.Clear("DOORSTOP_MONO_LIB_PATH");
+        fixture.InstallPluginFixture();
+
+        using var session = new BootstrapSession();
+        var result = session.Start(fixture.GameDirectory);
+
+        Assert(!result.IsSupported, "Unknown runtime was incorrectly accepted.");
+        Assert(result.Runtime.Backend == InsiderRuntimeBackend.Unknown, "Unexpected runtime backend.");
+        Assert(result.LoadedPluginCount == 0 && result.FailedPluginCount == 0, "Plugins were scanned on an unsupported runtime.");
+        Assert(!File.Exists(Path.Combine(result.InsiderDirectory, "fixture-loaded.txt")), "Plugin ran on an unsupported runtime.");
+        Assert(File.ReadAllText(result.LogPath).Contains("is not supported by this build", StringComparison.Ordinal), "Unsupported runtime was not logged.");
     }
 
     private static void InstallsAndRestoresExistingProxy()
@@ -160,6 +209,75 @@ internal static class Program
     }
 
     public static List<string> LifecycleEvents { get; } = new List<string>();
+}
+
+internal sealed class BootstrapFixtureWorkspace : IDisposable
+{
+    private BootstrapFixtureWorkspace(string rootDirectory, string gameDirectory, string pluginDirectory)
+    {
+        RootDirectory = rootDirectory;
+        GameDirectory = gameDirectory;
+        PluginDirectory = pluginDirectory;
+    }
+
+    public string RootDirectory { get; }
+
+    public string GameDirectory { get; }
+
+    public string PluginDirectory { get; }
+
+    public static BootstrapFixtureWorkspace Create(bool withMonoRuntime)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "insider-bootstrap-tests", Guid.NewGuid().ToString("N"));
+        var gameDirectory = Path.Combine(root, "game");
+        var pluginDirectory = Path.Combine(gameDirectory, "Insider", "plugins");
+
+        Directory.CreateDirectory(pluginDirectory);
+        if (withMonoRuntime)
+        {
+            Directory.CreateDirectory(Path.Combine(gameDirectory, "MonoBleedingEdge"));
+        }
+
+        return new BootstrapFixtureWorkspace(root, gameDirectory, pluginDirectory);
+    }
+
+    public void InstallPluginFixture()
+    {
+        File.Copy(
+            typeof(BootstrapFixturePlugin).Assembly.Location,
+            Path.Combine(PluginDirectory, "Insider.PluginFixture.dll"));
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(RootDirectory))
+        {
+            Directory.Delete(RootDirectory, recursive: true);
+        }
+    }
+}
+
+internal sealed class EnvironmentVariableScope : IDisposable
+{
+    private readonly string _name;
+    private readonly string? _originalValue;
+
+    private EnvironmentVariableScope(string name)
+    {
+        _name = name;
+        _originalValue = Environment.GetEnvironmentVariable(name);
+        Environment.SetEnvironmentVariable(name, null);
+    }
+
+    public static EnvironmentVariableScope Clear(string name)
+    {
+        return new EnvironmentVariableScope(name);
+    }
+
+    public void Dispose()
+    {
+        Environment.SetEnvironmentVariable(_name, _originalValue);
+    }
 }
 
 internal sealed class InstallationFixture : IDisposable

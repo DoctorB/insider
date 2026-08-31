@@ -9,7 +9,9 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Insider.Abstractions/Insider.Abstractions.csproj" />
+    <ProjectReference Include="../../src/Insider.Bootstrap/Insider.Bootstrap.csproj" />
     <ProjectReference Include="../../src/Insider.Installation/Insider.Installation.csproj" />
     <ProjectReference Include="../../src/Insider.Loader/Insider.Loader.csproj" />
+    <ProjectReference Include="../Insider.PluginFixture/Insider.PluginFixture.csproj" />
   </ItemGroup>
 </Project>

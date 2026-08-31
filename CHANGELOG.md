@@ -19,3 +19,5 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Windows x64 CI package artifact containing a framework-dependent .NET 10 CLI.
 - Native fake-Mono fixture covering the bootstrap call sequence, delayed domain
   availability, and managed invocation failures.
+- Managed bootstrap integration fixture covering runtime detection, plugin
+  discovery, lifecycle callbacks, logging, and unsupported runtimes.

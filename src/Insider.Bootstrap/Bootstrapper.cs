@@ -1,15 +1,13 @@
 using System;
 using System.IO;
 using System.Threading;
-using Insider.Loader;
 
 namespace Insider.Bootstrap;
 
 internal static class Bootstrapper
 {
     private static int _started;
-    private static PluginHost? _pluginHost;
-    private static IInsiderLogger? _logger;
+    private static BootstrapSession? _session;
 
     public static void Start()
     {
@@ -20,51 +18,16 @@ internal static class Bootstrapper
 
         try
         {
-            var gameDirectory = ResolveGameDirectory();
-            var insiderDirectory = Path.Combine(gameDirectory, "Insider");
-            var pluginDirectory = Path.Combine(insiderDirectory, "plugins");
-            var logDirectory = Path.Combine(insiderDirectory, "logs");
-
-            Directory.CreateDirectory(pluginDirectory);
-            Directory.CreateDirectory(logDirectory);
-
-            _logger = new FileLogger(Path.Combine(logDirectory, "insider.log"));
-            var runtime = RuntimeDetector.Detect(gameDirectory);
-            var context = new BootstrapContext(gameDirectory, insiderDirectory, _logger, runtime);
-
-            _logger.Info($"Insider bootstrap started: {runtime.Backend}, {runtime.OperatingSystem}, {runtime.Architecture}.");
-
-            if (runtime.Backend != InsiderRuntimeBackend.UnityMono)
-            {
-                _logger.Warn($"Runtime backend '{runtime.Backend}' is not supported by this build; no plugins were loaded.");
-                return;
-            }
-
-            _pluginHost = new PluginHost(context);
-            var results = _pluginHost.LoadDirectory(pluginDirectory);
-            var loaded = 0;
-            var failed = 0;
-
-            foreach (var result in results)
-            {
-                if (result.Succeeded)
-                {
-                    loaded++;
-                }
-                else
-                {
-                    failed++;
-                }
-            }
-
-            _logger.Info($"Plugin scan completed: {loaded} loaded, {failed} failed.");
+            var session = new BootstrapSession();
+            _session = session;
+            session.Start(ResolveGameDirectory());
             AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
         }
         catch (Exception exception)
         {
-            if (_logger is not null)
+            if (_session?.Logger is not null)
             {
-                _logger.Log(InsiderLogLevel.Critical, "Insider bootstrap failed.", exception);
+                _session.Logger.Log(InsiderLogLevel.Critical, "Insider bootstrap failed.", exception);
             }
             else
             {
@@ -75,7 +38,7 @@ internal static class Bootstrapper
 
     private static void OnProcessExit(object? sender, EventArgs eventArgs)
     {
-        _pluginHost?.UnloadAll();
+        _session?.Stop();
     }
 
     private static string ResolveGameDirectory()

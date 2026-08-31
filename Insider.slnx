@@ -10,6 +10,7 @@
     <Project Path="samples/HelloInsider/HelloInsider.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Insider.PluginFixture/Insider.PluginFixture.csproj" />
     <Project Path="tests/Insider.Tests/Insider.Tests.csproj" />
   </Folder>
 </Solution>

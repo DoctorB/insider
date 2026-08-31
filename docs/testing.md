@@ -11,6 +11,16 @@ The executable suite in `tests/Insider.Tests` covers plugin discovery,
 metadata, duplicate identifiers, failure containment, reverse unload order,
 installation manifests, hash verification, and proxy backup restoration.
 
+### Managed bootstrap integration fixture
+
+`Insider.PluginFixture` is copied into a temporary Unity-like game layout and
+loaded through a real managed bootstrap session. The test verifies runtime
+detection, directory creation, assembly discovery, plugin context delivery,
+load and unload callbacks, failure-closed behavior on unsupported runtimes,
+and persistent bootstrap logging.
+
+The fixture is test-only and is never included in release packages.
+
 ### Native proxy smoke test
 
 `InsiderNativeProxySmoke` loads the generated `version.dll`, verifies all 17
@@ -40,9 +50,11 @@ packages.
 
 ## What the fixture does not prove
 
-The fake runtime cannot execute managed IL, reproduce Unity's Mono fork, or
-validate Unity main-thread behavior. A real Windows x64 Unity/Mono player is
-still required before compatibility can move from experimental to supported.
+The fake native runtime cannot execute managed IL or reproduce Unity's Mono
+fork. The managed fixture executes IL on the test host, but does not enter
+through the native proxy or validate Unity main-thread behavior. A real Windows
+x64 Unity/Mono player is still required before compatibility can move from
+experimental to supported.
 
 ## Run locally
 
