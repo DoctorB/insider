@@ -42,7 +42,8 @@ integration testing and migration only.
 See [docs/architecture.md](docs/architecture.md) for the component boundaries
 and [docs/compatibility.md](docs/compatibility.md) for the support policy. The
 [testing strategy](docs/testing.md) explains what is automated without a game
-fixture and what still requires a real Unity player.
+fixture and what still requires a real Unity player. Plugin authors should start
+with the [plugin development guide](docs/plugin-development.md).
 
 ## Repository layout
 
@@ -119,6 +120,13 @@ public sealed class HelloPlugin : IInsiderPlugin
 
 The API is deliberately small while the runtime and hook lifecycle are proven
 against real Unity players.
+
+Managed dependencies should be placed under `Insider/plugins/dependencies`.
+Insider resolves exact assembly identities from that tree and refuses ambiguous
+or conflicting versions. Unity Mono has one shared application domain, so two
+plugins cannot safely carry different versions of an assembly with the same
+simple name. See the plugin development guide for the supported layout and
+diagnostics.
 
 ## Security
 

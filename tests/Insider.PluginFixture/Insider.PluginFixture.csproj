@@ -8,5 +8,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Insider.Abstractions/Insider.Abstractions.csproj" />
+    <ProjectReference Include="../Insider.DependencyFixture.V1/Insider.DependencyFixture.V1.csproj" />
   </ItemGroup>
 </Project>

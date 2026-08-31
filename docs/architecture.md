@@ -23,9 +23,15 @@ bootstrap.
 
 ### Insider.Loader
 
-Discovers plugin assemblies, validates metadata and unique identifiers, creates
-plugin instances, and owns their load/unload lifecycle. It must contain failures
-to the affected plugin whenever possible.
+Discovers plugin assemblies, catalogs managed dependencies, validates metadata
+and unique identifiers, creates plugin instances, and owns their load/unload
+lifecycle. Requested dependency identities are resolved from the plugin tree;
+an identical identity already resident in the game application domain may be
+reused by the runtime. The loader rejects duplicate or conflicting assembly
+names before plugin code runs because Unity Mono does not provide a safe
+isolation boundary inside its shared application domain. Managed images are
+read into memory before loading so the source DLLs are not held open by Insider
+for the rest of the process.
 
 ### Insider.Bootstrap
 
@@ -64,6 +70,8 @@ as the production backend.
 - Native crashes are tested in child processes, never inside the unit-test host.
 - Early bootstrap code must assume Unity APIs are not initialized.
 - A plugin failure must be logged with plugin identity and stage.
+- Dependency resolution must be deterministic; ambiguous assembly identities
+  fail closed before plugin discovery.
 - Third-party binaries require recorded versions, hashes, sources, and licenses.
 
 ## Security boundary
@@ -74,7 +82,7 @@ The loader validates metadata and lifecycle, not plugin intent.
 ## Test boundary
 
 The native fixture provides an Insider-owned module with the same seven Mono
-embedding exports consumed by the bootstrap. This checks ABI lookup and call
-sequencing without redistributing Unity or Mono. It is a deterministic contract
-test, not evidence that a specific Unity version or game is supported. See
-[testing.md](testing.md).
+embedding exports consumed by the bootstrap. Managed fixtures separately cover
+real assembly discovery, exact dependency resolution, missing dependencies, and
+version conflicts. These are deterministic contract tests, not evidence that a
+specific Unity version or game is supported. See [testing.md](testing.md).

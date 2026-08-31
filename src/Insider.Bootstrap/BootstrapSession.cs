@@ -100,7 +100,7 @@ internal sealed class BootstrapSession : IDisposable
             }
 
             _stopped = true;
-            _pluginHost?.UnloadAll();
+            _pluginHost?.Dispose();
             _pluginHost = null;
             Logger?.Info("Insider bootstrap stopped.");
         }

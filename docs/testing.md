@@ -16,8 +16,9 @@ installation manifests, hash verification, and proxy backup restoration.
 `Insider.PluginFixture` is copied into a temporary Unity-like game layout and
 loaded through a real managed bootstrap session. The test verifies runtime
 detection, directory creation, assembly discovery, plugin context delivery,
-load and unload callbacks, failure-closed behavior on unsupported runtimes,
-and persistent bootstrap logging.
+exact dependency resolution, load and unload callbacks, failure-closed behavior
+for missing or conflicting dependencies and unsupported runtimes, and
+persistent bootstrap logging.
 
 The fixture is test-only and is never included in release packages.
 

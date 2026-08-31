@@ -1,4 +1,5 @@
 using System.IO;
+using Insider.DependencyFixture;
 
 namespace Insider.PluginFixture;
 
@@ -12,7 +13,9 @@ public sealed class BootstrapFixturePlugin : IInsiderPlugin
         _insiderDirectory = context.InsiderDirectory;
         File.WriteAllText(
             Path.Combine(_insiderDirectory, "fixture-loaded.txt"),
-            $"Backend={context.Runtime.Backend}{System.Environment.NewLine}GameDirectory={context.GameDirectory}");
+            $"Backend={context.Runtime.Backend}{System.Environment.NewLine}" +
+            $"GameDirectory={context.GameDirectory}{System.Environment.NewLine}" +
+            $"Dependency={DependencyValue.Current}");
     }
 
     public void Unload()

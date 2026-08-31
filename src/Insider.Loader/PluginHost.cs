@@ -6,12 +6,13 @@ using System.Reflection;
 
 namespace Insider.Loader;
 
-public sealed class PluginHost
+public sealed class PluginHost : IDisposable
 {
     private readonly IInsiderContext _context;
     private readonly Dictionary<string, LoadedPlugin> _plugins =
         new Dictionary<string, LoadedPlugin>(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _loadOrder = new List<string>();
+    private PluginAssemblyResolver? _dependencyResolver;
 
     public PluginHost(IInsiderContext context)
     {
@@ -30,10 +31,21 @@ public sealed class PluginHost
             throw new ArgumentException("A plugin directory is required.", nameof(directory));
         }
 
-        Directory.CreateDirectory(directory);
+        var normalizedDirectory = Path.GetFullPath(directory);
+        Directory.CreateDirectory(normalizedDirectory);
+
+        try
+        {
+            EnsureDependencyResolver(normalizedDirectory);
+        }
+        catch (Exception exception)
+        {
+            _context.Logger.Error($"Could not create the plugin dependency catalog for '{normalizedDirectory}'.", exception);
+            return new[] { PluginLoadResult.Failure(normalizedDirectory, exception.Message, exception) };
+        }
 
         var results = new List<PluginLoadResult>();
-        foreach (var assemblyPath in Directory.GetFiles(directory, "*.dll").OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        foreach (var assemblyPath in Directory.GetFiles(normalizedDirectory, "*.dll").OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
             results.AddRange(LoadAssembly(assemblyPath));
         }
@@ -50,7 +62,8 @@ public sealed class PluginHost
 
         try
         {
-            var assembly = Assembly.LoadFrom(Path.GetFullPath(assemblyPath));
+            var normalizedPath = Path.GetFullPath(assemblyPath);
+            var assembly = Assembly.Load(File.ReadAllBytes(normalizedPath));
             return GetLoadableTypes(assembly)
                 .Where(IsPluginType)
                 .Select(Load)
@@ -133,12 +146,34 @@ public sealed class PluginHost
 
         _plugins.Clear();
         _loadOrder.Clear();
+        _dependencyResolver?.Dispose();
+        _dependencyResolver = null;
+    }
+
+    public void Dispose()
+    {
+        UnloadAll();
     }
 
     private PluginLoadResult Fail(string source, string error)
     {
         _context.Logger.Warn(error);
         return PluginLoadResult.Failure(source, error);
+    }
+
+    private void EnsureDependencyResolver(string pluginDirectory)
+    {
+        if (_dependencyResolver is null)
+        {
+            _dependencyResolver = PluginAssemblyResolver.Create(pluginDirectory, _context.Logger);
+            return;
+        }
+
+        if (!string.Equals(_dependencyResolver.PluginDirectory, pluginDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"This plugin host is already bound to '{_dependencyResolver.PluginDirectory}' and cannot also load '{pluginDirectory}'.");
+        }
     }
 
     private void TryUnloadPartial(IInsiderPlugin? instance, string source)

@@ -4,7 +4,6 @@ using System.IO;
 using Insider.Bootstrap;
 using Insider.Installation;
 using Insider.Loader;
-using Insider.PluginFixture;
 
 namespace Insider.Tests;
 
@@ -19,7 +18,9 @@ internal static class Program
             ("rejects missing metadata", RejectsMissingMetadata),
             ("contains plugin load failures", ContainsLoadFailure),
             ("unloads plugins in reverse order", UnloadsInReverseOrder),
+            ("fails closed on a missing plugin dependency", FailsClosedOnMissingPluginDependency),
             ("bootstraps a plugin directory end to end", BootstrapsPluginDirectoryEndToEnd),
+            ("rejects conflicting plugin dependency versions", RejectsConflictingPluginDependencyVersions),
             ("fails closed on an unsupported managed runtime", FailsClosedOnUnsupportedManagedRuntime),
             ("installs and uninstalls without losing an existing proxy", InstallsAndRestoresExistingProxy),
             ("refuses to remove modified installation files", RefusesToRemoveModifiedFiles),
@@ -108,6 +109,7 @@ internal static class Program
         var loadedMarker = Path.Combine(result.InsiderDirectory, "fixture-loaded.txt");
         Assert(File.Exists(loadedMarker), "Fixture plugin did not write its load marker.");
         Assert(File.ReadAllText(loadedMarker).Contains("Backend=UnityMono", StringComparison.Ordinal), "Fixture received the wrong runtime context.");
+        Assert(File.ReadAllText(loadedMarker).Contains("Dependency=dependency-v1", StringComparison.Ordinal), "Fixture dependency was not resolved.");
 
         var log = File.ReadAllText(result.LogPath);
         Assert(log.Contains("Plugin scan completed: 1 loaded, 0 failed.", StringComparison.Ordinal), "Bootstrap summary was not logged.");
@@ -118,6 +120,35 @@ internal static class Program
         Assert(File.ReadAllText(result.LogPath).Contains("Insider bootstrap stopped.", StringComparison.Ordinal), "Bootstrap shutdown was not logged.");
 
         session.Stop();
+    }
+
+    private static void FailsClosedOnMissingPluginDependency()
+    {
+        using var fixture = BootstrapFixtureWorkspace.Create(withMonoRuntime: true);
+        fixture.InstallPluginFixture(includeDependency: false);
+
+        using var session = new BootstrapSession();
+        var result = session.Start(fixture.GameDirectory);
+
+        Assert(result.LoadedPluginCount == 0 && result.FailedPluginCount == 1, "Missing dependency did not fail exactly one plugin.");
+        Assert(!File.Exists(Path.Combine(result.InsiderDirectory, "fixture-loaded.txt")), "Plugin completed with a missing dependency.");
+        Assert(File.ReadAllText(result.LogPath).Contains("is not present under", StringComparison.Ordinal), "Missing dependency was not diagnosed.");
+    }
+
+    private static void RejectsConflictingPluginDependencyVersions()
+    {
+        using var fixture = BootstrapFixtureWorkspace.Create(withMonoRuntime: true);
+        fixture.InstallPluginFixture(includeDependency: true);
+        fixture.InstallConflictingDependency();
+
+        using var session = new BootstrapSession();
+        var result = session.Start(fixture.GameDirectory);
+
+        Assert(result.LoadedPluginCount == 0 && result.FailedPluginCount == 1, "Conflicting dependencies did not stop the plugin scan.");
+        Assert(!File.Exists(Path.Combine(result.InsiderDirectory, "fixture-loaded.txt")), "Plugin ran despite conflicting dependencies.");
+        Assert(
+            File.ReadAllText(result.LogPath).Contains("conflicting assemblies for 'Insider.DependencyFixture'", StringComparison.Ordinal),
+            "Dependency conflict was not diagnosed.");
     }
 
     private static void FailsClosedOnUnsupportedManagedRuntime()
@@ -213,11 +244,12 @@ internal static class Program
 
 internal sealed class BootstrapFixtureWorkspace : IDisposable
 {
-    private BootstrapFixtureWorkspace(string rootDirectory, string gameDirectory, string pluginDirectory)
+    private BootstrapFixtureWorkspace(string rootDirectory, string gameDirectory, string pluginDirectory, string dependencyDirectory)
     {
         RootDirectory = rootDirectory;
         GameDirectory = gameDirectory;
         PluginDirectory = pluginDirectory;
+        DependencyDirectory = dependencyDirectory;
     }
 
     public string RootDirectory { get; }
@@ -226,26 +258,46 @@ internal sealed class BootstrapFixtureWorkspace : IDisposable
 
     public string PluginDirectory { get; }
 
+    public string DependencyDirectory { get; }
+
     public static BootstrapFixtureWorkspace Create(bool withMonoRuntime)
     {
         var root = Path.Combine(Path.GetTempPath(), "insider-bootstrap-tests", Guid.NewGuid().ToString("N"));
         var gameDirectory = Path.Combine(root, "game");
         var pluginDirectory = Path.Combine(gameDirectory, "Insider", "plugins");
+        var dependencyDirectory = Path.Combine(pluginDirectory, "dependencies");
 
         Directory.CreateDirectory(pluginDirectory);
+        Directory.CreateDirectory(dependencyDirectory);
         if (withMonoRuntime)
         {
             Directory.CreateDirectory(Path.Combine(gameDirectory, "MonoBleedingEdge"));
         }
 
-        return new BootstrapFixtureWorkspace(root, gameDirectory, pluginDirectory);
+        return new BootstrapFixtureWorkspace(root, gameDirectory, pluginDirectory, dependencyDirectory);
     }
 
-    public void InstallPluginFixture()
+    public void InstallPluginFixture(bool includeDependency = true)
     {
         File.Copy(
-            typeof(BootstrapFixturePlugin).Assembly.Location,
+            GetFixturePath("bootstrap", "Insider.PluginFixture.dll"),
             Path.Combine(PluginDirectory, "Insider.PluginFixture.dll"));
+
+        if (includeDependency)
+        {
+            File.Copy(
+                GetFixturePath("dependencies", "v1", "Insider.DependencyFixture.dll"),
+                Path.Combine(DependencyDirectory, "Insider.DependencyFixture.dll"));
+        }
+    }
+
+    public void InstallConflictingDependency()
+    {
+        var conflictDirectory = Path.Combine(DependencyDirectory, "conflict-v2");
+        Directory.CreateDirectory(conflictDirectory);
+        File.Copy(
+            GetFixturePath("dependencies", "v2", "Insider.DependencyFixture.dll"),
+            Path.Combine(conflictDirectory, "Insider.DependencyFixture.dll"));
     }
 
     public void Dispose()
@@ -254,6 +306,17 @@ internal sealed class BootstrapFixtureWorkspace : IDisposable
         {
             Directory.Delete(RootDirectory, recursive: true);
         }
+    }
+
+    private static string GetFixturePath(params string[] parts)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "fixtures");
+        foreach (var part in parts)
+        {
+            path = Path.Combine(path, part);
+        }
+
+        return path;
     }
 }
 

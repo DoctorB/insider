@@ -21,3 +21,6 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   availability, and managed invocation failures.
 - Managed bootstrap integration fixture covering runtime detection, plugin
   discovery, lifecycle callbacks, logging, and unsupported runtimes.
+- Deterministic plugin dependency catalog with exact identity resolution and
+  failure-closed diagnostics for missing or conflicting assemblies.
+- Plugin development guide and dependency-resolution architecture decision.

@@ -35,6 +35,21 @@ The automated fake-Mono fixture validates only the embedding calls made by the
 native bootstrap. It does not execute managed assemblies or model Unity's main
 thread and therefore does not change the support status by itself.
 
+## Managed dependency constraints
+
+Unity Mono plugins share the game's application domain. Insider resolves exact
+managed assembly identities from `Insider/plugins` and its `dependencies`
+subtree, but it cannot guarantee side-by-side isolation for two versions with
+the same simple assembly name. Duplicate candidates, conflicting versions, and
+conflicts with an already loaded game assembly fail closed and are written to
+`Insider/logs/insider.log`.
+
+When the game has already loaded the exact requested identity, the runtime may
+reuse that resident assembly. Insider cannot replace or independently unload it.
+
+Managed assemblies remain loaded until the game process exits even after their
+plugin lifecycle receives `Unload()`.
+
 ## Legacy Insider v1
 
 The archived v1 implementation targets .NET Framework 3.5 and writes directly to
