@@ -30,3 +30,5 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   requirements, without a range-expression language.
 - Automatic plugin-ID prefixes for messages written through the plugin context
   logger.
+- CI verification of required Windows package files and license notices,
+  test/source exclusions, and the packaged CLI entry point.

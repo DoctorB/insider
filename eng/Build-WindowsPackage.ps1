@@ -59,4 +59,6 @@ foreach ($file in $coreFiles) {
 }
 
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "packaging/README.txt") -Destination $outputPath
+Copy-Item -LiteralPath (Join-Path $repositoryRoot "LICENSE") -Destination $outputPath
+Copy-Item -LiteralPath (Join-Path $repositoryRoot "THIRD_PARTY_NOTICES.md") -Destination $outputPath
 Write-Host "Created Insider package at $outputPath"

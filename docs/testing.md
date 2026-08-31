@@ -52,6 +52,13 @@ the expected diagnostic instead of crashing the host process.
 The fixture contains no Unity or Mono code and is never included in release
 packages.
 
+### Windows package smoke test
+
+`eng/Test-WindowsPackage.ps1` verifies the assembled artifact before upload. It
+checks the native bootstrap, managed core, CLI runtime files and package README;
+requires license notices; rejects test assemblies and source files; and runs the
+packaged CLI help command.
+
 ## What the fixture does not prove
 
 The fake native runtime cannot execute managed IL or reproduce Unity's Mono
@@ -69,4 +76,6 @@ dotnet run --project tests/Insider.Tests --configuration Release --no-build
 cmake -S native -B artifacts/native-build -A x64
 cmake --build artifacts/native-build --config Release
 ctest --test-dir artifacts/native-build --build-config Release --output-on-failure
+
+./eng/Test-WindowsPackage.ps1 -PackageDirectory artifacts/Insider-windows-x64
 ```

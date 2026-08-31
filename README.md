@@ -96,6 +96,14 @@ cmake --build artifacts/native-build --config Release
 ctest --test-dir artifacts/native-build --build-config Release --output-on-failure
 ```
 
+The Windows artifact is checked after assembly for required runtime files,
+license notices, accidental test/source content, and a working packaged CLI.
+Run the same check locally with:
+
+```powershell
+./eng/Test-WindowsPackage.ps1 -PackageDirectory artifacts/Insider-windows-x64
+```
+
 ## Plugin model
 
 Plugins implement `IInsiderPlugin` and declare metadata with
