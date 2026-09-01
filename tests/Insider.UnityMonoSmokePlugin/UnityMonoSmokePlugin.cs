@@ -20,6 +20,8 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
     private readonly List<Assembly> _hookedGameAssemblies = new List<Assembly>();
     private readonly List<IDisposable> _gameHookHandles = new List<IDisposable>();
     private readonly List<MethodInfo> _gameHookTargets = new List<MethodInfo>();
+    private static int _refReturnOriginalValue = 7;
+    private static int _refReturnReplacementValue = 42;
     private IInsiderContext? _context;
     private Timer? _gameHookRemovalTimer;
 
@@ -45,11 +47,39 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
             ?? throw new InvalidOperationException("Unity smoke ref/out hook target was not found.");
         _ = context.Hooks.Detour(refOutTarget, (RefOutReplacement)RefOutHookReplacement);
 
+        var inParameterTarget = typeof(UnityMonoSmokePlugin).GetMethod(
+            nameof(InParameterHookTarget),
+            BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException("Unity smoke in-parameter hook target was not found.");
+        _ = context.Hooks.Detour(
+            inParameterTarget,
+            (InParameterReplacement)InParameterHookReplacement);
+
+        var refReturnTarget = typeof(UnityMonoSmokePlugin).GetMethod(
+            nameof(RefReturnHookTarget),
+            BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException("Unity smoke ref-return hook target was not found.");
+        _ = context.Hooks.Detour(refReturnTarget, (RefReturnReplacement)RefReturnHookReplacement);
+
         var instanceTarget = typeof(UnityMonoSmokePlugin).GetMethod(
             nameof(InstanceHookTarget),
             BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new InvalidOperationException("Unity smoke instance hook target was not found.");
         _ = context.Hooks.Detour(instanceTarget, (InstanceReplacement)InstanceHookReplacement);
+
+        var virtualBaseTarget = typeof(VirtualBaseHookTarget).GetMethod(
+            nameof(VirtualBaseHookTarget.Calculate),
+            BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            ?? throw new InvalidOperationException("Unity smoke virtual base hook target was not found.");
+        _ = context.Hooks.Detour(virtualBaseTarget, (VirtualBaseReplacement)VirtualBaseHookReplacement);
+
+        var virtualOverrideTarget = typeof(VirtualDerivedHookTarget).GetMethod(
+            nameof(VirtualDerivedHookTarget.Calculate),
+            BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            ?? throw new InvalidOperationException("Unity smoke virtual override hook target was not found.");
+        _ = context.Hooks.Detour(
+            virtualOverrideTarget,
+            (VirtualDerivedReplacement)VirtualDerivedHookReplacement);
 
         var valueTypeTarget = typeof(ValueTypeHookTarget).GetMethod(
             nameof(ValueTypeHookTarget.Add),
@@ -71,10 +101,42 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
                 $"Unity smoke ref/out detour returned {refOutSucceeded}, {refOutValue}, {refOutOutput}; expected true, 8, 26.");
         }
 
+        var inParameterValue = 2;
+        var inParameterHookedValue = InParameterHookTarget(in inParameterValue);
+        if (inParameterHookedValue != 14)
+        {
+            throw new InvalidOperationException(
+                $"Unity smoke in-parameter detour returned {inParameterHookedValue}; expected 14.");
+        }
+
+        ref var refReturn = ref RefReturnHookTarget();
+        var refReturnHookedValue = refReturn;
+        if (refReturnHookedValue != 42 || _refReturnOriginalValue != 12)
+        {
+            throw new InvalidOperationException(
+                $"Unity smoke ref-return detour returned {refReturnHookedValue} with original state {_refReturnOriginalValue}; expected 42 and 12.");
+        }
+
+        refReturn = 50;
+        if (_refReturnReplacementValue != 50)
+        {
+            throw new InvalidOperationException(
+                $"Unity smoke ref-return storage contained {_refReturnReplacementValue}; expected 50.");
+        }
+
         var instanceHookedValue = InstanceHookTarget(2);
         if (instanceHookedValue != 42)
         {
             throw new InvalidOperationException($"Unity smoke instance detour returned {instanceHookedValue}; expected 42.");
+        }
+
+        var virtualBaseHookedValue = new VirtualBaseHookTarget().Calculate(2);
+        VirtualBaseHookTarget virtualDerivedInstance = new VirtualDerivedHookTarget();
+        var virtualOverrideHookedValue = virtualDerivedInstance.Calculate(2);
+        if (virtualBaseHookedValue != 14 || virtualOverrideHookedValue != 30)
+        {
+            throw new InvalidOperationException(
+                $"Unity smoke virtual detours returned {virtualBaseHookedValue} and {virtualOverrideHookedValue}; expected 14 and 30.");
         }
 
         var valueTypeInstance = new ValueTypeHookTarget(5);
@@ -93,7 +155,13 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
             $"HookedValue={hookedValue}{Environment.NewLine}" +
             $"RefOutValue={refOutValue}{Environment.NewLine}" +
             $"RefOutOutput={refOutOutput}{Environment.NewLine}" +
+            $"InParameterHookedValue={inParameterHookedValue}{Environment.NewLine}" +
+            $"RefReturnHookedValue={refReturnHookedValue}{Environment.NewLine}" +
+            $"RefReturnOriginalValue={_refReturnOriginalValue}{Environment.NewLine}" +
+            $"RefReturnReplacementValue={_refReturnReplacementValue}{Environment.NewLine}" +
             $"InstanceHookedValue={instanceHookedValue}{Environment.NewLine}" +
+            $"VirtualBaseHookedValue={virtualBaseHookedValue}{Environment.NewLine}" +
+            $"VirtualOverrideHookedValue={virtualOverrideHookedValue}{Environment.NewLine}" +
             $"ValueTypeHookedValue={valueTypeHookedValue}{Environment.NewLine}" +
             $"ValueTypeState={valueTypeInstance.Value}{Environment.NewLine}" +
             $"GameDirectory={context.GameDirectory}{Environment.NewLine}");
@@ -116,13 +184,25 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
         var valueTypeInstance = new ValueTypeHookTarget(5);
         var refOutValue = 2;
         _ = RefOutHookTarget(ref refOutValue, out var refOutOutput);
+        var inParameterValue = 2;
+        var inParameterHookedValue = InParameterHookTarget(in inParameterValue);
+        ref var refReturn = ref RefReturnHookTarget();
+        var refReturnHookedValue = refReturn;
+        var virtualBaseHookedValue = new VirtualBaseHookTarget().Calculate(2);
+        VirtualBaseHookTarget virtualDerivedInstance = new VirtualDerivedHookTarget();
         File.WriteAllText(
             Path.Combine(_insiderDirectory, "unity-smoke-plugin-unloaded.txt"),
             $"unloaded{Environment.NewLine}" +
             $"HookedValue={HookTarget()}{Environment.NewLine}" +
             $"RefOutValue={refOutValue}{Environment.NewLine}" +
             $"RefOutOutput={refOutOutput}{Environment.NewLine}" +
+            $"InParameterHookedValue={inParameterHookedValue}{Environment.NewLine}" +
+            $"RefReturnHookedValue={refReturnHookedValue}{Environment.NewLine}" +
+            $"RefReturnOriginalValue={_refReturnOriginalValue}{Environment.NewLine}" +
+            $"RefReturnReplacementValue={_refReturnReplacementValue}{Environment.NewLine}" +
             $"InstanceHookedValue={InstanceHookTarget(2)}{Environment.NewLine}" +
+            $"VirtualBaseHookedValue={virtualBaseHookedValue}{Environment.NewLine}" +
+            $"VirtualOverrideHookedValue={virtualDerivedInstance.Calculate(2)}{Environment.NewLine}" +
             $"ValueTypeHookedValue={valueTypeInstance.Add(2)}{Environment.NewLine}" +
             $"ValueTypeState={valueTypeInstance.Value}");
     }
@@ -160,6 +240,32 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int InParameterHookTarget(in int value)
+    {
+        return value + 5;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int InParameterHookReplacement(InParameterOriginal original, in int value)
+    {
+        return original(in value) * 2;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static ref int RefReturnHookTarget()
+    {
+        return ref _refReturnOriginalValue;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static ref int RefReturnHookReplacement(RefReturnOriginal original)
+    {
+        ref var originalValue = ref original();
+        originalValue += 5;
+        return ref _refReturnReplacementValue;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
     private int InstanceHookTarget(int value)
     {
         return _baseValue + value;
@@ -172,6 +278,24 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
         int value)
     {
         return original(self, value) * 6;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int VirtualBaseHookReplacement(
+        VirtualBaseOriginal original,
+        VirtualBaseHookTarget self,
+        int value)
+    {
+        return original(self, value) * 2;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int VirtualDerivedHookReplacement(
+        VirtualDerivedOriginal original,
+        VirtualDerivedHookTarget self,
+        int value)
+    {
+        return original(self, value) + 20;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -329,9 +453,31 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
         ref int value,
         out int output);
 
+    private delegate int InParameterOriginal(in int value);
+
+    private delegate int InParameterReplacement(InParameterOriginal original, in int value);
+
+    private delegate ref int RefReturnOriginal();
+
+    private delegate ref int RefReturnReplacement(RefReturnOriginal original);
+
     private delegate int InstanceReplacement(
         InstanceOriginal original,
         UnityMonoSmokePlugin self,
+        int value);
+
+    private delegate int VirtualBaseOriginal(VirtualBaseHookTarget self, int value);
+
+    private delegate int VirtualBaseReplacement(
+        VirtualBaseOriginal original,
+        VirtualBaseHookTarget self,
+        int value);
+
+    private delegate int VirtualDerivedOriginal(VirtualDerivedHookTarget self, int value);
+
+    private delegate int VirtualDerivedReplacement(
+        VirtualDerivedOriginal original,
+        VirtualDerivedHookTarget self,
         int value);
 
     private delegate int ValueTypeOriginal(ref ValueTypeHookTarget self, int value);
@@ -344,6 +490,24 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
     private delegate int GameOriginal(int value);
 
     private delegate int GameReplacement(GameOriginal original, int value);
+
+    private class VirtualBaseHookTarget
+    {
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public virtual int Calculate(int value)
+        {
+            return value + 5;
+        }
+    }
+
+    private sealed class VirtualDerivedHookTarget : VirtualBaseHookTarget
+    {
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public override int Calculate(int value)
+        {
+            return value + 8;
+        }
+    }
 
     private struct ValueTypeHookTarget
     {

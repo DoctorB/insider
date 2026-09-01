@@ -19,7 +19,8 @@ The first implementation target is intentionally narrow:
 - Managed plugins loaded from `Insider/plugins`
 - A loader-owned plugin lifecycle and diagnostics
 - Managed method and instance-constructor detours backed by MonoMod.RuntimeDetour,
-  including `ref`/`out` parameters and `ref self` for value-type instance methods
+  including virtual implementations, `ref`/`out`/`in` parameters, by-reference
+  returns, and `ref self` for value-type instance methods
 
 IL2CPP and additional operating systems are planned as separate runtime
 backends. They are not supported yet.
@@ -167,8 +168,12 @@ rather than completely replace game behavior. Multiple detours may share a
 target; each returned handle removes only its own detour, while inter-plugin
 execution order remains intentionally unspecified. Reference-type instance
 methods receive `self`; value-type instance methods receive `ref self` so their
-mutations affect the original struct. Declared `ref` and `out` parameters flow
-through replacements and original calls. The
+mutations affect the original struct. Declared `ref`, `out`, and `in` parameters
+and by-reference returns flow through replacements and original calls. Virtual
+base methods and overrides are targeted as separate implementations. Generic
+hook targets fail closed because the backend does not support them. Removal
+handles are idempotent, and backend failures use the stable
+`InsiderHookException` boundary. The
 [managed hooking guide](docs/hooking.md) documents every supported signature
 with examples.
 

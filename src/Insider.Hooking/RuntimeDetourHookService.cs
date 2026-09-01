@@ -33,9 +33,26 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
             throw new ArgumentException("Abstract methods cannot be detoured.", nameof(target));
         }
 
-        if (target.ContainsGenericParameters || replacement.Method.ContainsGenericParameters)
+        if (target.ContainsGenericParameters)
         {
             throw new ArgumentException("Open generic methods cannot be detoured.", nameof(target));
+        }
+
+        if ((target is MethodInfo method && method.IsGenericMethod) ||
+            (target.DeclaringType?.IsGenericType ?? false))
+        {
+            throw new NotSupportedException(
+                "Generic methods and members declared on generic types are not supported by the current RuntimeDetour backend.");
+        }
+
+        if (replacement.Method.ContainsGenericParameters)
+        {
+            throw new ArgumentException("Open generic replacement methods cannot be used as detours.", nameof(replacement));
+        }
+
+        if (replacement.GetInvocationList().Length != 1)
+        {
+            throw new ArgumentException("A replacement delegate must contain exactly one invocation target.", nameof(replacement));
         }
 
         if ((target.CallingConvention & CallingConventions.VarArgs) != 0)
@@ -45,7 +62,17 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
 
         ValidateSignature(target, replacement);
 
-        return new Hook(target, replacement);
+        var targetName = FormatTarget(target);
+        try
+        {
+            return new RuntimeDetourHandle(new Hook(target, replacement), targetName);
+        }
+        catch (Exception exception)
+        {
+            throw new InsiderHookException(
+                $"Could not apply managed detour to '{targetName}'.",
+                exception);
+        }
     }
 
     private static void ValidateSignature(MethodBase target, Delegate replacement)
@@ -74,9 +101,24 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
         }
 
         var directSignature = FormatSignature(returnType, expectedParameters);
+        var actualParameters = GetParameterTypes(replacementParameters);
+        var actualSignature = FormatSignature(replacementInvoke.ReturnType, actualParameters);
         throw new ArgumentException(
-            $"Replacement delegate must match '{directSignature}', optionally preceded by an original-call delegate with the same signature.",
+            $"Replacement delegate '{FormatType(replacement.GetType())}' has signature '{actualSignature}', " +
+            $"but target '{FormatTarget(target)}' requires '{directSignature}', optionally preceded by " +
+            "an original-call delegate with that required signature.",
             nameof(replacement));
+    }
+
+    private static Type[] GetParameterTypes(ParameterInfo[] parameters)
+    {
+        var types = new Type[parameters.Length];
+        for (var index = 0; index < parameters.Length; index++)
+        {
+            types[index] = parameters[index].ParameterType;
+        }
+
+        return types;
     }
 
     private static Type[] GetExpectedParameters(MethodBase target)
@@ -169,6 +211,111 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
             return $"byref {FormatType(elementType)}";
         }
 
-        return type.FullName ?? type.Name;
+        if (type.IsPointer)
+        {
+            var elementType = type.GetElementType()
+                ?? throw new ArgumentException("Pointer type has no element type.", nameof(type));
+            return $"{FormatType(elementType)}*";
+        }
+
+        if (type.IsArray)
+        {
+            var elementType = type.GetElementType()
+                ?? throw new ArgumentException("Array type has no element type.", nameof(type));
+            var commas = new string(',', type.GetArrayRank() - 1);
+            return $"{FormatType(elementType)}[{commas}]";
+        }
+
+        if (!type.IsGenericType)
+        {
+            return (type.FullName ?? type.Name).Replace('+', '.');
+        }
+
+        var definition = type.GetGenericTypeDefinition();
+        var name = (definition.FullName ?? definition.Name).Replace('+', '.');
+        var arity = name.IndexOf('`');
+        if (arity >= 0)
+        {
+            name = name.Substring(0, arity);
+        }
+
+        var arguments = type.GetGenericArguments();
+        var formattedArguments = new string[arguments.Length];
+        for (var index = 0; index < arguments.Length; index++)
+        {
+            formattedArguments[index] = FormatType(arguments[index]);
+        }
+
+        return $"{name}<{string.Join(", ", formattedArguments)}>";
+    }
+
+    private static string FormatTarget(MethodBase target)
+    {
+        var declaringType = target.DeclaringType is null
+            ? "<global>"
+            : FormatType(target.DeclaringType);
+        var methodName = target.Name;
+        if (target is MethodInfo method && method.IsGenericMethod)
+        {
+            var genericArguments = method.GetGenericArguments();
+            var formattedArguments = new string[genericArguments.Length];
+            for (var index = 0; index < genericArguments.Length; index++)
+            {
+                formattedArguments[index] = FormatType(genericArguments[index]);
+            }
+
+            methodName = $"{methodName}<{string.Join(", ", formattedArguments)}>";
+        }
+
+        var parameters = target.GetParameters();
+        var parameterTypes = GetParameterTypes(parameters);
+        return $"{declaringType}.{methodName}{FormatParameters(parameterTypes)}";
+    }
+
+    private static string FormatParameters(Type[] parameters)
+    {
+        var names = new string[parameters.Length];
+        for (var index = 0; index < parameters.Length; index++)
+        {
+            names[index] = FormatType(parameters[index]);
+        }
+
+        return $"({string.Join(", ", names)})";
+    }
+
+    private sealed class RuntimeDetourHandle : IDisposable
+    {
+        private readonly object _sync = new object();
+        private readonly string _targetName;
+        private Hook? _hook;
+
+        public RuntimeDetourHandle(Hook hook, string targetName)
+        {
+            _hook = hook ?? throw new ArgumentNullException(nameof(hook));
+            _targetName = targetName ?? throw new ArgumentNullException(nameof(targetName));
+        }
+
+        public void Dispose()
+        {
+            lock (_sync)
+            {
+                if (_hook is null)
+                {
+                    return;
+                }
+
+                try
+                {
+                    _hook.Dispose();
+                    _hook = null;
+                }
+                catch (Exception exception)
+                {
+                    throw new InsiderHookException(
+                        $"Could not remove managed detour from '{_targetName}'.",
+                        exception);
+                }
+            }
+        }
     }
 }

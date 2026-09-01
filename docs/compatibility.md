@@ -45,8 +45,12 @@ persistent native and managed logs. On 2026-09-01 the same fixture also applied
 a MonoMod.RuntimeDetour managed hook inside Unity Mono and observed the expected
 replacement result during plugin load and unload. The fixture now also wraps a
 method with `ref` and `out` parameters and observes both mutations through its
-original-call delegate. A reference-type instance method receives its `self`
-argument and invokes the original method synchronously. A plugin-owned
+original-call delegate. It also preserves an `in` parameter and a managed
+by-reference return; the latter reaches replacement storage, remains writable,
+and propagates mutation through the original-call delegate. A reference-type
+instance method receives its `self` argument and invokes the original method
+synchronously. Virtual base and override implementations are hooked
+independently and remain distinct through virtual dispatch. A plugin-owned
 value-type method is also wrapped with `ref self`; the original mutation remains
 visible in the struct. Finally, the fixture waits for the `Assembly-CSharp`
 instance loaded by Unity, detours a method without referencing the game assembly

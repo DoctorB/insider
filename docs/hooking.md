@@ -22,7 +22,8 @@ IDisposable handle = context.Hooks.Detour(target, replacement);
 - `target` is a reflected `MethodInfo` or instance `ConstructorInfo`.
 - `replacement` is a delegate whose signature must match exactly.
 - The detour is active when `Detour` returns.
-- Disposing the handle removes only that detour.
+- Disposing the handle removes only that detour. Disposal is idempotent; after
+  a removal failure, disposing the same handle again retries it.
 - Insider owns every handle created through a plugin context and removes any
   remaining detours after `Unload()` or a failed `Load()`.
 
@@ -35,8 +36,9 @@ The signature mapping is:
 | `R Type.Method(A)` on a struct | `R Replacement(ref Type self, A)` |
 | `Type.ctor(A)` on a class | `void Replacement(Type self, A)` |
 
-Declared `ref` and `out` parameters keep their by-reference position in every
-replacement and original-call delegate.
+Declared `ref`, `out`, and `in` parameters keep their by-reference position in
+every replacement and original-call delegate. A by-reference return must also
+remain by reference.
 
 Any replacement may prepend an original-call delegate with the same return type
 and parameters shown in the table. That delegate advances to the next detour in
@@ -107,7 +109,9 @@ private static int Replacement(ComputeOriginal original, int value)
 Invoke `original` synchronously while the replacement is running. Do not store
 the delegate or invoke it later from another thread.
 
-## Ref and out parameters
+## By-reference parameters and returns
+
+### Ref and out parameters
 
 Methods that mutate arguments in place or follow the `TryGet` pattern can be
 wrapped without copying their values. Mirror each `ref` and `out` parameter in
@@ -137,6 +141,70 @@ Use the same modifier as the target in plugin source so intent and definite
 assignment remain clear. Insider's mismatch diagnostics render either form as
 `byref ElementType`.
 
+### In parameters
+
+Readonly by-reference parameters use `in` in both delegates and at the call
+site:
+
+```csharp
+private delegate float DistanceOriginal(in Vector3 left, in Vector3 right);
+private delegate float DistanceHook(
+    DistanceOriginal original,
+    in Vector3 left,
+    in Vector3 right);
+
+private static float Replacement(
+    DistanceOriginal original,
+    in Vector3 left,
+    in Vector3 right)
+{
+    return original(in left, in right);
+}
+```
+
+The CLR represents `ref`, `out`, and `in` using managed by-reference parameter
+types. Keep the source modifier identical to the target even when two forms are
+ABI-compatible; it preserves intent and lets the C# compiler enforce the right
+read/write rules.
+
+### By-reference returns
+
+A target that returns a managed reference needs `ref` on the original-call
+delegate, replacement delegate, replacement method, and returned expression:
+
+```csharp
+private delegate ref int ScoreOriginal(ScoreTable self, int index);
+private delegate ref int ScoreHook(
+    ScoreOriginal original,
+    ScoreTable self,
+    int index);
+
+private static ref int Replacement(
+    ScoreOriginal original,
+    ScoreTable self,
+    int index)
+{
+    return ref original(self, index);
+}
+```
+
+Returning the value instead of the managed reference is a different signature
+and is rejected before the backend applies the detour.
+
+## Generic targets
+
+MonoMod.RuntimeDetour 25.3.6 does not support generic source methods, including
+fully constructed ones. Mono may also share generated code between members of
+constructed generic types. Insider therefore fails closed before patching:
+
+- Open generic targets throw `ArgumentException`.
+- Closed generic methods and members declared on generic types throw
+  `NotSupportedException`.
+
+Generic types remain valid as ordinary parameter or return types of a
+non-generic member declared on a non-generic type. The restriction concerns the
+hook target itself.
+
 ## Reference-type instance methods
 
 An instance method declared on a class receives its declaring type as `self`
@@ -160,6 +228,52 @@ private static int Replacement(
 ```
 
 The `self` parameter is required even when the replacement does not use it.
+
+## Virtual methods and overrides
+
+A virtual base method and each override are separate hook targets. Reflect the
+exact implementation with `BindingFlags.DeclaredOnly`, then use that declaring
+type as `self` in its delegates:
+
+```csharp
+var baseTarget = typeof(Enemy).GetMethod(
+    nameof(Enemy.CalculateDamage),
+    BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+    ?? throw new InvalidOperationException("Base target not found.");
+
+var overrideTarget = typeof(BossEnemy).GetMethod(
+    nameof(BossEnemy.CalculateDamage),
+    BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+    ?? throw new InvalidOperationException("Override target not found.");
+
+_baseHook = context.Hooks.Detour(
+    baseTarget,
+    (EnemyDamageHook)ReplaceEnemyDamage);
+_overrideHook = context.Hooks.Detour(
+    overrideTarget,
+    (BossDamageHook)ReplaceBossDamage);
+```
+
+The delegate types are distinct because their `self` types are distinct:
+
+```csharp
+private delegate int EnemyDamageOriginal(Enemy self, int amount);
+private delegate int EnemyDamageHook(
+    EnemyDamageOriginal original,
+    Enemy self,
+    int amount);
+
+private delegate int BossDamageOriginal(BossEnemy self, int amount);
+private delegate int BossDamageHook(
+    BossDamageOriginal original,
+    BossEnemy self,
+    int amount);
+```
+
+Hooking the base implementation does not automatically hook an override, and
+hooking an override does not change the base implementation. If an override
+explicitly calls the base implementation, that base call still reaches the base
+hook. Each returned handle removes only its own implementation's detour.
 
 ## Value-type instance methods
 
@@ -273,8 +387,30 @@ Every `context.Hooks.Detour` call is scoped to the plugin that made it:
 - Removing one plugin's hooks does not remove another plugin's nodes from the
   same target chain.
 
+Handles become disposed only after the runtime confirms removal. A removal
+failure leaves the handle tracked and retryable instead of silently orphaning a
+possibly active detour. Loader cleanup attempts every owned handle even if one
+fails, then reports the failures together.
+
 Hooks created directly through third-party APIs are outside this ownership
 model and cannot be cleaned up by Insider.
+
+## Errors and diagnostics
+
+Contract validation happens before runtime patching:
+
+- Invalid or mismatched signatures throw `ArgumentException`.
+- Unsupported targets throw `NotSupportedException`.
+- A backend failure while applying or removing a valid detour throws
+  `InsiderHookException` and retains the original exception in
+  `InnerException`.
+
+Signature errors identify the reflected target, the actual delegate signature,
+and the required signature. Generic, array, pointer, and managed by-reference
+types are formatted without leaking a MonoMod type into plugin code. A
+replacement delegate must also contain exactly one invocation target;
+multicast delegates are rejected because their hook semantics would be
+ambiguous.
 
 ## Hooking late Unity assemblies
 
@@ -354,18 +490,23 @@ with an ambiguous-match exception.
 The current managed backend supports:
 
 - Static methods.
-- Declared `ref` and `out` parameters.
+- Declared `ref`, `out`, and `in` parameters.
+- Managed by-reference returns.
 - Reference-type instance methods with `self`.
+- Virtual base methods and overrides as independently targeted implementations.
 - Value-type instance methods with `ref self`.
 - Reference-type instance constructors.
 - Direct replacements and synchronous original-call continuations.
 - Multiple independently removable detours on one target.
-- Early removal and loader-owned cleanup.
+- Idempotent early removal, retryable removal failures, and loader-owned
+  cleanup.
+- Stable `InsiderHookException` wrapping runtime apply and removal failures.
 
 It deliberately rejects or does not expose:
 
 - Abstract methods.
-- Open generic methods.
+- Open and closed generic methods, and members declared on generic types.
+- Multicast replacement delegates.
 - Variable-argument methods.
 - Static constructors and value-type constructors.
 - IL rewriting, HookGen, ordering controls, and native detours.

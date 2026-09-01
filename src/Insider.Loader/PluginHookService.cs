@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Threading;
 
 namespace Insider.Loader;
 
@@ -37,14 +36,13 @@ internal sealed class PluginHookService : IInsiderHookService, IDisposable
         OwnedDetour[] detours;
         lock (_sync)
         {
-            if (_disposed)
+            if (_disposed && _detours.Count == 0)
             {
                 return;
             }
 
             _disposed = true;
             detours = _detours.ToArray();
-            _detours.Clear();
         }
 
         List<Exception>? failures = null;
@@ -77,31 +75,31 @@ internal sealed class PluginHookService : IInsiderHookService, IDisposable
 
     private sealed class OwnedDetour : IDisposable
     {
+        private readonly object _sync = new object();
         private readonly IDisposable _inner;
         private readonly Action<OwnedDetour> _release;
-        private int _disposed;
+        private bool _disposed;
 
         public OwnedDetour(IDisposable inner, Action<OwnedDetour> release)
         {
-            _inner = inner;
-            _release = release;
+            _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+            _release = release ?? throw new ArgumentNullException(nameof(release));
         }
 
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            lock (_sync)
             {
-                return;
+                if (_disposed)
+                {
+                    return;
+                }
+
+                _inner.Dispose();
+                _disposed = true;
             }
 
-            try
-            {
-                _inner.Dispose();
-            }
-            finally
-            {
-                _release(this);
-            }
+            _release(this);
         }
     }
 }

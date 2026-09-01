@@ -63,3 +63,15 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Explicit `ref` and `out` parameter support with readable by-reference
   diagnostics, managed mutation/restoration tests, and real Unity Mono
   coverage.
+- Independently targeted virtual base and override detours, including exact
+  `self` signatures, selective removal tests, real Unity Mono coverage, and
+  documented `DeclaredOnly` reflection guidance.
+- `in` parameters and managed by-reference returns within the existing
+  exact-signature hook contract, plus explicit fail-closed rejection for generic
+  methods and members of generic types unsupported by RuntimeDetour, verified
+  through managed tests and a real Unity Mono player.
+- Idempotent, retryable detour removal that keeps failed handles under plugin
+  ownership, attempts the remaining cleanup, and reports aggregate failures.
+- Stable `InsiderHookException` wrapping backend application and removal
+  failures, plus target-aware readable signature diagnostics and explicit
+  multicast-delegate rejection.
