@@ -84,6 +84,9 @@ remains independently owned and removable. MonoMod types, static and value-type
 constructors, IL hooks, HookGen, detour ordering, and native detours are not
 exposed by the initial contract.
 
+The public signature and lifecycle rules are documented with working patterns
+in the [managed hooking guide](hooking.md).
+
 The old v1 memory patcher remains archived and is not used by the production
 backend.
 

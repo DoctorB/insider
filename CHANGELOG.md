@@ -57,3 +57,6 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Value-type instance method detours with exact `ref self` signatures and
   original-call continuations, verified in managed tests and a real Unity Mono
   player.
+- A canonical managed hooking guide with complete signature mappings, lifecycle
+  rules, Unity assembly-loading guidance, and examples for every supported
+  detour form.

@@ -13,6 +13,8 @@ scope are welcome.
 
 - Keep unrelated changes separate.
 - Add or update executable tests for behavior changes.
+- Update `docs/hooking.md` whenever the hooking contract, supported signatures,
+  lifecycle, backend limits, or runtime evidence changes.
 - Document compatibility claims with a reproducible Unity player fixture.
 - Do not add redistributed native binaries without updating
   `THIRD_PARTY_NOTICES.md` and documenting their provenance.

@@ -45,7 +45,9 @@ See [docs/architecture.md](docs/architecture.md) for the component boundaries
 and [docs/compatibility.md](docs/compatibility.md) for the support policy. The
 [testing strategy](docs/testing.md) explains what is automated without a game
 fixture and what still requires a real Unity player. Plugin authors should start
-with the [plugin development guide](docs/plugin-development.md).
+with the [plugin development guide](docs/plugin-development.md) and use the
+[managed hooking guide](docs/hooking.md) for signatures, lifecycle rules, and
+complete examples.
 
 ## Repository layout
 
@@ -55,7 +57,7 @@ native/    Insider-owned Windows process bootstrap
 tests/     Managed, native, and real-player fixtures
 samples/   Example plugins
 legacy/    Archived Insider v1 source; never shipped or built
-docs/      Architecture, compatibility, and design decisions
+docs/      Architecture, compatibility, usage guides, and design decisions
 ```
 
 ## Install a CI build
@@ -165,7 +167,8 @@ rather than completely replace game behavior. Multiple detours may share a
 target; each returned handle removes only its own detour, while inter-plugin
 execution order remains intentionally unspecified. Reference-type instance
 methods receive `self`; value-type instance methods receive `ref self` so their
-mutations affect the original struct.
+mutations affect the original struct. The [managed hooking guide](docs/hooking.md)
+documents every supported signature with examples.
 
 Messages written through `context.Logger` are automatically prefixed with the
 plugin ID, keeping the shared game log readable without extra logging APIs.

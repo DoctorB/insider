@@ -85,6 +85,10 @@ The hooking API applies a managed method or instance-constructor detour from a
 reflected `MethodBase` and a compatible replacement delegate. This
 instance-method example preserves the original behavior and changes its result:
 
+The complete signature reference, lifecycle rules, chain behavior, Unity
+assembly-loading pattern, and examples are maintained in
+[hooking.md](hooking.md).
+
 ```csharp
 using System;
 using System.Reflection;
