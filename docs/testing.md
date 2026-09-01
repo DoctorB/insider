@@ -77,10 +77,14 @@ The test succeeds only when all of these observations are present:
    `42` inside the real Unity Mono runtime;
 5. a second detour wraps an instance method, receives `self`, and calls its
    original implementation before producing `42`;
-6. the test plugin writes its load marker and scoped log message;
-7. both detours remain active through the plugin's `Unload()` callback;
-8. the managed log contains no error entries;
-9. the installed files still pass the CLI status check.
+6. the plugin observes Unity loading its effective `Assembly-CSharp` instance
+   and detours a static method without a compile-time game reference;
+7. the player directly invokes that game method and observes `42` instead of
+   its original `7`;
+8. the test plugin writes its load marker and scoped log messages;
+9. plugin-owned detours remain active through the plugin's `Unload()` callback;
+10. the managed log contains no error entries;
+11. the installed files still pass the CLI status check.
 
 This test is local rather than part of GitHub Actions because it needs an
 installed and licensed Unity Editor. Its generated project state, package, and
@@ -91,10 +95,11 @@ player stay below `artifacts/unity-mono-smoke` or ignored Unity directories.
 The fake native runtime cannot execute managed IL or reproduce Unity's Mono
 fork. The real-player fixture covers one Unity release and a deliberately empty
 game, but it does not validate game-specific behavior, Unity main-thread APIs,
-hooks against Unity or game assemblies, complex method signatures, detour
-chains involving multiple plugins, value-type instance methods, anti-cheat
-interaction, or other Unity/Mono versions. Broader real-player evidence is
-still required before compatibility can move from experimental to supported.
+hooks against UnityEngine or production game code, complex method signatures,
+detour chains involving multiple plugins, value-type instance methods,
+anti-cheat interaction, or other Unity/Mono versions. Broader real-player
+evidence is still required before compatibility can move from experimental to
+supported.
 
 ## Run locally
 

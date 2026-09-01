@@ -45,7 +45,9 @@ persistent native and managed logs. On 2026-09-01 the same fixture also applied
 a MonoMod.RuntimeDetour managed hook inside Unity Mono and observed the expected
 replacement result during plugin load and unload. The fixture now also wraps a
 reference-type instance method, receives its `self` argument, and invokes the
-original method synchronously.
+original method synchronously. Finally, it waits for the `Assembly-CSharp`
+instance loaded by Unity, detours a method without referencing the game assembly
+at compile time, and observes the changed result from a direct player call.
 
 The fixture is repeatable through `eng/Test-UnityMonoSmoke.ps1`, but it is not
 run in GitHub Actions because hosted execution would require a Unity Editor and

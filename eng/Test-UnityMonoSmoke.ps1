@@ -226,9 +226,12 @@ Reject-Text $managedLog "[Error]"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "Backend=UnityMono"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "HookedValue=42"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "InstanceHookedValue=42"
+Require-Text (Join-Path $insiderDirectory "unity-smoke-game-hooked.txt") "GameHookAssembly=Assembly-CSharp"
+Require-Text (Join-Path $insiderDirectory "unity-smoke-game-hooked.txt") "GameHookedValue=42"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "HookedValue=42"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "InstanceHookedValue=42"
 Require-Text $playerLog "INSIDER_UNITY_MONO_SMOKE_PLAYER_STARTED"
+Require-Text $playerLog "INSIDER_UNITY_MONO_SMOKE_GAME_HOOKED_VALUE=42"
 
 Invoke-CheckedProcess "dotnet" @($packagedCli, "status", $playerExecutable) 60
 

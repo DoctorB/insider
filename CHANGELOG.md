@@ -44,3 +44,5 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Exact hook-signature validation plus reference-type instance detours and
   synchronous original-method continuations, verified in managed and Unity Mono
   fixtures.
+- Real Unity Mono coverage for a plugin that waits for Unity's effective
+  `Assembly-CSharp` instance and detours a method invoked directly by the player.

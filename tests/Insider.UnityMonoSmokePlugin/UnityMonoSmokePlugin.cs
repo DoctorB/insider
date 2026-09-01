@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -13,10 +14,20 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
 
     private string? _insiderDirectory;
     private readonly int _baseValue = 5;
+    private readonly object _gameHookSync = new object();
+    private readonly List<Assembly> _hookedGameAssemblies = new List<Assembly>();
+    private IInsiderContext? _context;
 
     public void Load(IInsiderContext context)
     {
+        _context = context;
         _insiderDirectory = context.InsiderDirectory;
+        AppDomain.CurrentDomain.AssemblyLoad += OnAssemblyLoad;
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            TryInstallGameHook(assembly);
+        }
+
         var target = typeof(UnityMonoSmokePlugin).GetMethod(
             nameof(HookTarget),
             BindingFlags.NonPublic | BindingFlags.Static)
@@ -53,6 +64,8 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
 
     public void Unload()
     {
+        AppDomain.CurrentDomain.AssemblyLoad -= OnAssemblyLoad;
+
         if (_insiderDirectory is null)
         {
             return;
@@ -92,10 +105,72 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
         return original(self, value) * 6;
     }
 
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int GameHookReplacement(GameOriginal original, int value)
+    {
+        return original(value) * 6;
+    }
+
+    private void OnAssemblyLoad(object? sender, AssemblyLoadEventArgs eventArgs)
+    {
+        try
+        {
+            TryInstallGameHook(eventArgs.LoadedAssembly);
+        }
+        catch (Exception exception)
+        {
+            _context?.Logger.Error("Could not install the Unity smoke game hook.", exception);
+        }
+    }
+
+    private void TryInstallGameHook(Assembly assembly)
+    {
+        if (!string.Equals(assembly.GetName().Name, "Assembly-CSharp", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var context = _context
+            ?? throw new InvalidOperationException("Unity smoke plugin context is unavailable.");
+
+        lock (_gameHookSync)
+        {
+            if (_hookedGameAssemblies.Contains(assembly))
+            {
+                return;
+            }
+
+            var gameType = assembly.GetType("Insider.UnityMonoSmoke.SmokePlayer", throwOnError: true)
+                ?? throw new InvalidOperationException("Unity smoke game type was not found.");
+            var gameTarget = gameType.GetMethod(
+                "CalculateHookValue",
+                BindingFlags.Public | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Unity smoke game hook target was not found.");
+            _ = context.Hooks.Detour(gameTarget, (GameReplacement)GameHookReplacement);
+
+            var gameHookedValue = gameTarget.Invoke(null, new object[] { 2 });
+            if (!Equals(gameHookedValue, 42))
+            {
+                throw new InvalidOperationException($"Unity smoke game detour returned {gameHookedValue}; expected 42.");
+            }
+
+            _hookedGameAssemblies.Add(assembly);
+            File.AppendAllText(
+                Path.Combine(context.InsiderDirectory, "unity-smoke-game-hooked.txt"),
+                $"GameHookAssembly={assembly.GetName().Name}{Environment.NewLine}" +
+                $"GameHookedValue={gameHookedValue}{Environment.NewLine}");
+            context.Logger.Info("INSIDER_UNITY_MONO_SMOKE_GAME_HOOK_INSTALLED");
+        }
+    }
+
     private delegate int InstanceOriginal(UnityMonoSmokePlugin self, int value);
 
     private delegate int InstanceReplacement(
         InstanceOriginal original,
         UnityMonoSmokePlugin self,
         int value);
+
+    private delegate int GameOriginal(int value);
+
+    private delegate int GameReplacement(GameOriginal original, int value);
 }

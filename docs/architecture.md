@@ -99,6 +99,8 @@ backend.
   filesystem or reflection order.
 - Every detour created through a plugin context belongs to that plugin and must
   be removed even when plugin load or unload fails.
+- A hook must target the assembly instance used by Unity; late game assemblies
+  are observed when loaded rather than forced into the application domain.
 - Third-party binaries require recorded versions, hashes, sources, and licenses.
 
 ## Security boundary
@@ -116,5 +118,7 @@ version conflicts. These deterministic contract tests run in CI.
 A separate local fixture builds a real Unity 2022.3 Windows x64 Mono player and
 proves that the native proxy can enter the existing Mono domain, start the
 managed loader, load one plugin, apply a managed method detour, and unload the
-plugin during process exit. It closes the basic integration gap without turning
-one Unity version into a broad support claim. See [testing.md](testing.md).
+plugin during process exit. The plugin also waits for Unity's real
+`Assembly-CSharp` instance and detours a method that the player invokes
+directly. It closes the basic integration gap without turning one Unity version
+into a broad support claim. See [testing.md](testing.md).

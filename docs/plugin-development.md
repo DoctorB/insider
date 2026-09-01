@@ -131,6 +131,13 @@ If more than one detour targets the same method, that delegate advances to the
 next detour and eventually the original method. Insider does not define
 inter-plugin detour order yet.
 
+Hook the `MethodInfo` from the assembly instance Unity actually uses. Game
+assemblies such as `Assembly-CSharp` may load after Insider plugins. Do not force
+an early private copy with `Assembly.Load`; observe `AppDomain.AssemblyLoad`,
+install the detour when the requested assembly arrives, and unsubscribe during
+`Unload()`. Detours created through the saved plugin context remain
+loader-owned.
+
 Abstract methods, open generic methods, variable-argument methods, and instance
 methods declared on value types are rejected. IL rewriting, HookGen, ordering
 controls, and native hooks remain outside the Insider contract even when the
