@@ -6,8 +6,9 @@ inside a real Unity player. The fixture also exposes a method in
 `Assembly-CSharp` that the external smoke plugin discovers after Unity loads the
 assembly, wraps with two detours, and changes from `7` to `42`. The plugin then
 disposes both handles while the player keeps running, and a later direct call
-observes the restored value `7`. It is not a sample game or a compatibility
-claim.
+observes the restored value `7`. The plugin also verifies a value-type instance
+method with `ref self`, including mutation of the original struct. It is not a
+sample game or a compatibility claim.
 
 Run the repository-level smoke script from PowerShell:
 

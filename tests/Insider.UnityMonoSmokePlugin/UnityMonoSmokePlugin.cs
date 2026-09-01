@@ -45,6 +45,12 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
             ?? throw new InvalidOperationException("Unity smoke instance hook target was not found.");
         _ = context.Hooks.Detour(instanceTarget, (InstanceReplacement)InstanceHookReplacement);
 
+        var valueTypeTarget = typeof(ValueTypeHookTarget).GetMethod(
+            nameof(ValueTypeHookTarget.Add),
+            BindingFlags.Public | BindingFlags.Instance)
+            ?? throw new InvalidOperationException("Unity smoke value-type hook target was not found.");
+        _ = context.Hooks.Detour(valueTypeTarget, (ValueTypeReplacement)ValueTypeHookReplacement);
+
         var hookedValue = HookTarget();
         if (hookedValue != 42)
         {
@@ -57,6 +63,14 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
             throw new InvalidOperationException($"Unity smoke instance detour returned {instanceHookedValue}; expected 42.");
         }
 
+        var valueTypeInstance = new ValueTypeHookTarget(5);
+        var valueTypeHookedValue = valueTypeInstance.Add(2);
+        if (valueTypeHookedValue != 42 || valueTypeInstance.Value != 7)
+        {
+            throw new InvalidOperationException(
+                $"Unity smoke value-type detour returned {valueTypeHookedValue} with state {valueTypeInstance.Value}; expected 42 and 7.");
+        }
+
         context.Logger.Info(Marker);
         File.WriteAllText(
             Path.Combine(context.InsiderDirectory, "unity-smoke-plugin-loaded.txt"),
@@ -64,6 +78,8 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
             $"Architecture={context.Runtime.Architecture}{Environment.NewLine}" +
             $"HookedValue={hookedValue}{Environment.NewLine}" +
             $"InstanceHookedValue={instanceHookedValue}{Environment.NewLine}" +
+            $"ValueTypeHookedValue={valueTypeHookedValue}{Environment.NewLine}" +
+            $"ValueTypeState={valueTypeInstance.Value}{Environment.NewLine}" +
             $"GameDirectory={context.GameDirectory}{Environment.NewLine}");
     }
 
@@ -81,11 +97,14 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
             return;
         }
 
+        var valueTypeInstance = new ValueTypeHookTarget(5);
         File.WriteAllText(
             Path.Combine(_insiderDirectory, "unity-smoke-plugin-unloaded.txt"),
             $"unloaded{Environment.NewLine}" +
             $"HookedValue={HookTarget()}{Environment.NewLine}" +
-            $"InstanceHookedValue={InstanceHookTarget(2)}");
+            $"InstanceHookedValue={InstanceHookTarget(2)}{Environment.NewLine}" +
+            $"ValueTypeHookedValue={valueTypeInstance.Add(2)}{Environment.NewLine}" +
+            $"ValueTypeState={valueTypeInstance.Value}");
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -113,6 +132,15 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
         int value)
     {
         return original(self, value) * 6;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int ValueTypeHookReplacement(
+        ValueTypeOriginal original,
+        ref ValueTypeHookTarget self,
+        int value)
+    {
+        return original(ref self, value) * 6;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -259,7 +287,33 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
         UnityMonoSmokePlugin self,
         int value);
 
+    private delegate int ValueTypeOriginal(ref ValueTypeHookTarget self, int value);
+
+    private delegate int ValueTypeReplacement(
+        ValueTypeOriginal original,
+        ref ValueTypeHookTarget self,
+        int value);
+
     private delegate int GameOriginal(int value);
 
     private delegate int GameReplacement(GameOriginal original, int value);
+
+    private struct ValueTypeHookTarget
+    {
+        private int _value;
+
+        public ValueTypeHookTarget(int value)
+        {
+            _value = value;
+        }
+
+        public int Value => _value;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public int Add(int value)
+        {
+            _value += value;
+            return _value;
+        }
+    }
 }

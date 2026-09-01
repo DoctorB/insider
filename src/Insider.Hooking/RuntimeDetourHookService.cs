@@ -89,12 +89,14 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
         {
             var declaringType = target.DeclaringType
                 ?? throw new NotSupportedException("Instance members without a declaring type are not supported.");
-            if (declaringType.IsValueType)
+            if (declaringType.IsValueType && target is ConstructorInfo)
             {
-                throw new NotSupportedException("Instance members declared on value types are not supported yet.");
+                throw new NotSupportedException("Value-type constructors are not supported yet.");
             }
 
-            expected[0] = declaringType;
+            expected[0] = declaringType.IsValueType
+                ? declaringType.MakeByRefType()
+                : declaringType;
         }
 
         for (var index = 0; index < methodParameters.Length; index++)

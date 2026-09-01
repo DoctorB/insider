@@ -54,3 +54,6 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Real Unity Mono coverage that disposes a two-node game hook chain while the
   player remains active and verifies the direct call changes from `42` back to
   the original `7`.
+- Value-type instance method detours with exact `ref self` signatures and
+  original-call continuations, verified in managed tests and a real Unity Mono
+  player.

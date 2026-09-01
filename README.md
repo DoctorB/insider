@@ -18,7 +18,8 @@ The first implementation target is intentionally narrow:
 - Windows x64
 - Managed plugins loaded from `Insider/plugins`
 - A loader-owned plugin lifecycle and diagnostics
-- Managed method and instance-constructor detours backed by MonoMod.RuntimeDetour
+- Managed method and instance-constructor detours backed by MonoMod.RuntimeDetour,
+  including `ref self` for value-type instance methods
 
 IL2CPP and additional operating systems are planned as separate runtime
 backends. They are not supported yet.
@@ -162,7 +163,9 @@ plugin-owned detour automatically after `Unload()` or a failed `Load()`. A
 replacement may accept an original-call delegate first, allowing it to wrap
 rather than completely replace game behavior. Multiple detours may share a
 target; each returned handle removes only its own detour, while inter-plugin
-execution order remains intentionally unspecified.
+execution order remains intentionally unspecified. Reference-type instance
+methods receive `self`; value-type instance methods receive `ref self` so their
+mutations affect the original struct.
 
 Messages written through `context.Logger` are automatically prefixed with the
 plugin ID, keeping the shared game log readable without extra logging APIs.

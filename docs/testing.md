@@ -13,9 +13,10 @@ required and optional plugin dependency ordering, missing dependencies, cycles,
 failure propagation, numeric version validation, minimum-version enforcement,
 plugin-scoped logging, managed detour application/removal, detour cleanup after
 unload or failed load, exact-signature rejection, instance-method and
-instance-constructor detours with original calls, multi-detour chains,
-selective removal, cross-plugin ownership isolation, installation manifests,
-hash verification, and proxy backup restoration.
+instance-constructor detours with original calls, value-type instance methods
+with `ref self`, multi-detour chains, selective removal, cross-plugin ownership
+isolation, installation manifests, hash verification, and proxy backup
+restoration.
 
 ### Managed bootstrap integration fixture
 
@@ -78,19 +79,21 @@ The test succeeds only when all of these observations are present:
    `42` inside the real Unity Mono runtime;
 5. a second detour wraps an instance method, receives `self`, and calls its
    original implementation before producing `42`;
-6. the plugin observes Unity loading its effective `Assembly-CSharp` instance
+6. a value-type instance detour receives `ref self`, calls the original method,
+   produces `42`, and preserves the original mutation in the struct;
+7. the plugin observes Unity loading its effective `Assembly-CSharp` instance
    and applies two detours to one static method without a compile-time game
    reference;
-7. both continuations contribute to the chain and the player directly observes
+8. both continuations contribute to the chain and the player directly observes
    `42` instead of the original `7`;
-8. the plugin disposes both game-hook handles while the player remains active;
-9. the player directly invokes the same method again and observes the restored
+9. the plugin disposes both game-hook handles while the player remains active;
+10. the player directly invokes the same method again and observes the restored
    value `7`;
-10. the test plugin writes its load marker and scoped log messages;
-11. the other plugin-owned detours remain active through the plugin's
+11. the test plugin writes its load marker and scoped log messages;
+12. the other plugin-owned detours remain active through the plugin's
     `Unload()` callback;
-12. the managed log contains no error entries;
-13. the installed files still pass the CLI status check.
+13. the managed log contains no error entries;
+14. the installed files still pass the CLI status check.
 
 This test is local rather than part of GitHub Actions because it needs an
 installed and licensed Unity Editor. Its generated project state, package, and
@@ -103,8 +106,8 @@ fork. The real-player fixture covers one Unity release and a deliberately empty
 game, but it does not validate game-specific behavior, Unity main-thread APIs,
 hooks against UnityEngine or production game code, ordered chains or chains
 involving multiple real plugins, constructor hooks inside Unity, complex method
-signatures, value-type instance members, anti-cheat interaction, or other
-Unity/Mono versions. Broader
+signatures, value-type constructors, anti-cheat interaction, or other Unity/Mono
+versions. Broader
 real-player evidence is still required before compatibility can move from
 experimental to supported.
 

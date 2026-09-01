@@ -24,6 +24,7 @@ internal static class Program
             ("scopes plugin log messages by id", ScopesPluginLogMessagesById),
             ("applies and removes a managed detour", AppliesAndRemovesManagedDetour),
             ("detours an instance method and calls the original", DetoursInstanceMethodAndCallsOriginal),
+            ("detours a value-type instance method with ref self", DetoursValueTypeInstanceMethodWithRefSelf),
             ("detours an instance constructor and calls the original", DetoursInstanceConstructorAndCallsOriginal),
             ("rejects incompatible managed detour signatures", RejectsIncompatibleManagedDetourSignatures),
             ("chains and selectively removes managed detours", ChainsAndSelectivelyRemovesManagedDetours),
@@ -164,12 +165,32 @@ internal static class Program
         Assert(restored.Value == 5, "Disposing the constructor detour did not restore the target constructor.");
     }
 
+    private static void DetoursValueTypeInstanceMethodWithRefSelf()
+    {
+        var service = new RuntimeDetourHookService();
+        var target = GetRequiredMethod(typeof(ManagedValueHookTarget), nameof(ManagedValueHookTarget.Add));
+        var instance = new ManagedValueHookTarget(5);
+
+        Assert(instance.Add(2) == 7, "Value-type hook target did not begin with its original value.");
+        instance = new ManagedValueHookTarget(5);
+
+        using (service.Detour(target, (ManagedValueReplacement)ManagedValueHookTarget.Replacement))
+        {
+            Assert(instance.Add(2) == 19, "Value-type detour did not receive ref self or call the original method.");
+            Assert(instance.Value == 9, "Value-type detour did not preserve the original mutation through ref self.");
+        }
+
+        instance = new ManagedValueHookTarget(5);
+        Assert(instance.Add(2) == 7, "Disposing the value-type detour did not restore the target method.");
+    }
+
     private static void RejectsIncompatibleManagedDetourSignatures()
     {
         var service = new RuntimeDetourHookService();
         var staticTarget = GetRequiredMethod(typeof(ManagedHookTarget), nameof(ManagedHookTarget.Value));
         var instanceTarget = GetRequiredMethod(typeof(ManagedInstanceHookTarget), nameof(ManagedInstanceHookTarget.Add));
-        var valueTypeTarget = GetRequiredMethod(typeof(ManagedValueHookTarget), nameof(ManagedValueHookTarget.Value));
+        var valueTypeTarget = GetRequiredMethod(typeof(ManagedValueHookTarget), nameof(ManagedValueHookTarget.Add));
+        var valueTypeConstructorTarget = GetRequiredConstructor(typeof(ManagedValueHookTarget), typeof(int));
         var staticConstructorTarget = typeof(ManagedStaticConstructorHookTarget).TypeInitializer
             ?? throw new InvalidOperationException("Static constructor hook target was not found.");
 
@@ -177,8 +198,10 @@ internal static class Program
             () => service.Detour(staticTarget, (Func<int, int>)ManagedHookTarget.ReplacementWithArgument));
         AssertThrows<ArgumentException>(
             () => service.Detour(instanceTarget, (Func<int, int>)ManagedInstanceHookTarget.ReplacementWithoutSelf));
+        AssertThrows<ArgumentException>(
+            () => service.Detour(valueTypeTarget, (Func<ManagedValueHookTarget, int>)ManagedValueHookTarget.InvalidReplacement));
         AssertThrows<NotSupportedException>(
-            () => service.Detour(valueTypeTarget, (Func<ManagedValueHookTarget, int>)ManagedValueHookTarget.Replacement));
+            () => service.Detour(valueTypeConstructorTarget, (Action)ManagedStaticConstructorHookTarget.Replacement));
         AssertThrows<NotSupportedException>(
             () => service.Detour(staticConstructorTarget, (Action)ManagedStaticConstructorHookTarget.Replacement));
     }
@@ -1131,16 +1154,43 @@ internal sealed class ManagedInstanceHookTarget
     }
 }
 
+internal delegate int ManagedValueOriginal(ref ManagedValueHookTarget self, int value);
+
+internal delegate int ManagedValueReplacement(
+    ManagedValueOriginal original,
+    ref ManagedValueHookTarget self,
+    int value);
+
 internal struct ManagedValueHookTarget
 {
-    public int Value()
+    private int _value;
+
+    public ManagedValueHookTarget(int value)
     {
-        return 7;
+        _value = value;
     }
 
-    public static int Replacement(ManagedValueHookTarget self)
+    public int Value => _value;
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int Add(int value)
     {
-        return self.Value();
+        _value += value;
+        return _value;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int Replacement(
+        ManagedValueOriginal original,
+        ref ManagedValueHookTarget self,
+        int value)
+    {
+        return original(ref self, value * 2) + 10;
+    }
+
+    public static int InvalidReplacement(ManagedValueHookTarget self)
+    {
+        return self.Value;
     }
 }
 
