@@ -25,8 +25,10 @@ internal static class Program
             ("applies and removes a managed detour", AppliesAndRemovesManagedDetour),
             ("detours an instance method and calls the original", DetoursInstanceMethodAndCallsOriginal),
             ("rejects incompatible managed detour signatures", RejectsIncompatibleManagedDetourSignatures),
+            ("chains and selectively removes managed detours", ChainsAndSelectivelyRemovesManagedDetours),
             ("removes plugin detours during unload", RemovesPluginDetoursDuringUnload),
             ("removes plugin detours after failed load", RemovesPluginDetoursAfterFailedLoad),
+            ("preserves other plugin detours after failed load", PreservesOtherPluginDetoursAfterFailedLoad),
             ("unloads plugins in reverse order", UnloadsInReverseOrder),
             ("loads required plugin dependencies first", LoadsRequiredPluginDependenciesFirst),
             ("loads present optional plugin dependencies first", LoadsPresentOptionalPluginDependenciesFirst),
@@ -158,6 +160,26 @@ internal static class Program
             () => service.Detour(valueTypeTarget, (Func<ManagedValueHookTarget, int>)ManagedValueHookTarget.Replacement));
     }
 
+    private static void ChainsAndSelectivelyRemovesManagedDetours()
+    {
+        var service = new RuntimeDetourHookService();
+        var target = GetRequiredMethod(typeof(ManagedHookTarget), nameof(ManagedHookTarget.Value));
+
+        using (service.Detour(target, (ManagedHookReplacement)ManagedHookTarget.AddTen))
+        {
+            Assert(ManagedHookTarget.Value() == 17, "The first managed detour did not call the original method.");
+
+            using (service.Detour(target, (ManagedHookReplacement)ManagedHookTarget.AddTwenty))
+            {
+                Assert(ManagedHookTarget.Value() == 37, "Managed detours did not compose into one chain.");
+            }
+
+            Assert(ManagedHookTarget.Value() == 17, "Removing one managed detour broke the remaining chain.");
+        }
+
+        Assert(ManagedHookTarget.Value() == 7, "Removing the managed detour chain did not restore the target.");
+    }
+
     private static void RemovesPluginDetoursDuringUnload()
     {
         using var host = CreateHost(new RuntimeDetourHookService());
@@ -180,6 +202,22 @@ internal static class Program
 
         Assert(!result.Succeeded, "Failing hooking plugin was reported as loaded.");
         Assert(ManagedHookTarget.Value() == 7, "Failed plugin load left its detour applied.");
+    }
+
+    private static void PreservesOtherPluginDetoursAfterFailedLoad()
+    {
+        using var host = CreateHost(new RuntimeDetourHookService());
+
+        var loaded = host.Load(typeof(ChainHookingPlugin));
+        Assert(loaded.Succeeded, loaded.Error ?? "Chain hooking plugin did not load.");
+        Assert(ManagedHookTarget.Value() == 17, "The existing plugin detour was not applied.");
+
+        var failed = host.Load(typeof(FailingChainHookingPlugin));
+        Assert(!failed.Succeeded, "Failing chain hooking plugin was reported as loaded.");
+        Assert(ManagedHookTarget.Value() == 17, "Failed plugin cleanup removed or changed another plugin's detour.");
+
+        host.UnloadAll();
+        Assert(ManagedHookTarget.Value() == 7, "Unloading the remaining plugin did not restore the target.");
     }
 
     private static void UnloadsInReverseOrder()
@@ -972,7 +1010,29 @@ internal static class ManagedHookTarget
     {
         return value;
     }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int AddTen(ManagedHookOriginal original)
+    {
+        return original() + 10;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int AddTwenty(ManagedHookOriginal original)
+    {
+        return original() + 20;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int AddOneHundred(ManagedHookOriginal original)
+    {
+        return original() + 100;
+    }
 }
+
+internal delegate int ManagedHookOriginal();
+
+internal delegate int ManagedHookReplacement(ManagedHookOriginal original);
 
 internal delegate int ManagedInstanceOriginal(ManagedInstanceHookTarget self, int value);
 
@@ -1048,6 +1108,37 @@ public sealed class FailingHookingPlugin : IInsiderPlugin
             ?? throw new InvalidOperationException("Managed hook target was not found.");
         _ = context.Hooks.Detour(target, (Func<int>)ManagedHookTarget.Replacement);
         throw new InvalidOperationException("Expected failure after applying a detour.");
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.chain-hooking", "Chain Hooking", "1.0.0")]
+public sealed class ChainHookingPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        var target = typeof(ManagedHookTarget).GetMethod(nameof(ManagedHookTarget.Value))
+            ?? throw new InvalidOperationException("Managed hook target was not found.");
+        _ = context.Hooks.Detour(target, (ManagedHookReplacement)ManagedHookTarget.AddTen);
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.failing-chain-hooking", "Failing Chain Hooking", "1.0.0")]
+public sealed class FailingChainHookingPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        var target = typeof(ManagedHookTarget).GetMethod(nameof(ManagedHookTarget.Value))
+            ?? throw new InvalidOperationException("Managed hook target was not found.");
+        _ = context.Hooks.Detour(target, (ManagedHookReplacement)ManagedHookTarget.AddOneHundred);
+        throw new InvalidOperationException("Expected failure after extending a detour chain.");
     }
 
     public void Unload()

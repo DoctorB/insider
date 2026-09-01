@@ -46,3 +46,5 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fixtures.
 - Real Unity Mono coverage for a plugin that waits for Unity's effective
   `Assembly-CSharp` instance and detours a method invoked directly by the player.
+- Multi-detour chain coverage with selective removal and failed-plugin cleanup
+  that preserves hooks owned by other plugins, plus a two-node Unity game hook.

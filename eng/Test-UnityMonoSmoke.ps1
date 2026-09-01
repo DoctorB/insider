@@ -227,6 +227,7 @@ Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "Back
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "HookedValue=42"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "InstanceHookedValue=42"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-game-hooked.txt") "GameHookAssembly=Assembly-CSharp"
+Require-Text (Join-Path $insiderDirectory "unity-smoke-game-hooked.txt") "GameHookCount=2"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-game-hooked.txt") "GameHookedValue=42"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "HookedValue=42"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "InstanceHookedValue=42"

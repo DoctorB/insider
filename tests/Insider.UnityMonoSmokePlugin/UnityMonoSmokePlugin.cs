@@ -106,9 +106,15 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static int GameHookReplacement(GameOriginal original, int value)
+    private static int FirstGameHookReplacement(GameOriginal original, int value)
     {
-        return original(value) * 6;
+        return original(value) + 14;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int SecondGameHookReplacement(GameOriginal original, int value)
+    {
+        return original(value) + 21;
     }
 
     private void OnAssemblyLoad(object? sender, AssemblyLoadEventArgs eventArgs)
@@ -146,7 +152,8 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
                 "CalculateHookValue",
                 BindingFlags.Public | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Unity smoke game hook target was not found.");
-            _ = context.Hooks.Detour(gameTarget, (GameReplacement)GameHookReplacement);
+            _ = context.Hooks.Detour(gameTarget, (GameReplacement)FirstGameHookReplacement);
+            _ = context.Hooks.Detour(gameTarget, (GameReplacement)SecondGameHookReplacement);
 
             var gameHookedValue = gameTarget.Invoke(null, new object[] { 2 });
             if (!Equals(gameHookedValue, 42))
@@ -158,6 +165,7 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
             File.AppendAllText(
                 Path.Combine(context.InsiderDirectory, "unity-smoke-game-hooked.txt"),
                 $"GameHookAssembly={assembly.GetName().Name}{Environment.NewLine}" +
+                $"GameHookCount=2{Environment.NewLine}" +
                 $"GameHookedValue={gameHookedValue}{Environment.NewLine}");
             context.Logger.Info("INSIDER_UNITY_MONO_SMOKE_GAME_HOOK_INSTALLED");
         }

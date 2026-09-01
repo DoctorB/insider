@@ -129,7 +129,9 @@ synchronously while the replacement is executing; do not store it.
 
 If more than one detour targets the same method, that delegate advances to the
 next detour and eventually the original method. Insider does not define
-inter-plugin detour order yet.
+inter-plugin detour order yet. Disposing one handle removes only that detour;
+cleanup after a failed plugin load does not remove detours owned by other
+plugins.
 
 Hook the `MethodInfo` from the assembly instance Unity actually uses. Game
 assemblies such as `Assembly-CSharp` may load after Insider plugins. Do not force

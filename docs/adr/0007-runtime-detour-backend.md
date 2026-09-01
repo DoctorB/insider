@@ -17,7 +17,9 @@ public operation accepts a `MethodInfo` and compatible replacement `Delegate`,
 applies the detour immediately, and returns an `IDisposable` removal handle.
 Signatures must match exactly. Reference-type instance methods add `self` before
 their declared parameters. A replacement may prepend an original-call delegate
-with the target signature and invoke it synchronously.
+with the target signature and invoke it synchronously. Multiple detours may
+compose through that continuation, while each removal handle affects only its
+own node. Insider does not define their inter-plugin execution order.
 
 The loader scopes every handle to the plugin that created it. Handles are
 removed in reverse creation order after `Unload()` and are also removed when
@@ -32,6 +34,8 @@ public contract.
 - Plugins receive one small hooking abstraction instead of depending on
   MonoMod directly.
 - Plugins can wrap game behavior without exposing a MonoMod-specific type.
+- Plugin failure cleanup preserves detours owned by other plugins in the same
+  chain.
 - A failed plugin cannot leave context-owned detours installed.
 - The Windows package now redistributes the RuntimeDetour dependency closure;
   versions, sources, licenses, and binary hashes are recorded in

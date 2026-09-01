@@ -158,7 +158,9 @@ method detour through `context.Hooks.Detour(target, replacement)`. The returned
 handle removes it early when disposed; Insider also removes every remaining
 plugin-owned detour automatically after `Unload()` or a failed `Load()`. A
 replacement may accept an original-call delegate first, allowing it to wrap
-rather than completely replace game behavior.
+rather than completely replace game behavior. Multiple detours may share a
+target; each returned handle removes only its own detour, while inter-plugin
+execution order remains intentionally unspecified.
 
 Messages written through `context.Logger` are automatically prefixed with the
 plugin ID, keeping the shared game log readable without extra logging APIs.

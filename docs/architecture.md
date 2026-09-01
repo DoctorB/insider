@@ -77,8 +77,10 @@ MonoMod.RuntimeDetour. The public surface creates direct managed method detours
 from a `MethodInfo` and replacement `Delegate`; construction applies the detour
 immediately and disposal removes it. Replacements use exact signatures, include
 `self` for reference-type instance methods, and may prepend an original-call
-delegate to wrap existing behavior. MonoMod types, IL hooks, HookGen, detour
-ordering, and native detours are not exposed by the initial contract.
+delegate to wrap existing behavior. Multiple detours can form a continuation
+chain, but every handle remains independently owned and removable. MonoMod
+types, IL hooks, HookGen, detour ordering, and native detours are not exposed by
+the initial contract.
 
 The old v1 memory patcher remains archived and is not used by the production
 backend.
@@ -99,6 +101,8 @@ backend.
   filesystem or reflection order.
 - Every detour created through a plugin context belongs to that plugin and must
   be removed even when plugin load or unload fails.
+- Removing or rolling back one plugin's detours must leave other owners' nodes
+  in the same target chain intact.
 - A hook must target the assembly instance used by Unity; late game assemblies
   are observed when loaded rather than forced into the application domain.
 - Third-party binaries require recorded versions, hashes, sources, and licenses.

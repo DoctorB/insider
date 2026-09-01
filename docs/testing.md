@@ -13,7 +13,8 @@ required and optional plugin dependency ordering, missing dependencies, cycles,
 failure propagation, numeric version validation, minimum-version enforcement,
 plugin-scoped logging, managed detour application/removal, detour cleanup after
 unload or failed load, exact-signature rejection, instance-method detours with
-original calls, installation manifests, hash verification, and proxy backup
+original calls, multi-detour chains, selective removal, cross-plugin ownership
+isolation, installation manifests, hash verification, and proxy backup
 restoration.
 
 ### Managed bootstrap integration fixture
@@ -78,9 +79,10 @@ The test succeeds only when all of these observations are present:
 5. a second detour wraps an instance method, receives `self`, and calls its
    original implementation before producing `42`;
 6. the plugin observes Unity loading its effective `Assembly-CSharp` instance
-   and detours a static method without a compile-time game reference;
-7. the player directly invokes that game method and observes `42` instead of
-   its original `7`;
+   and applies two detours to one static method without a compile-time game
+   reference;
+7. both continuations contribute to the chain and the player directly observes
+   `42` instead of the original `7`;
 8. the test plugin writes its load marker and scoped log messages;
 9. plugin-owned detours remain active through the plugin's `Unload()` callback;
 10. the managed log contains no error entries;
@@ -95,11 +97,11 @@ player stay below `artifacts/unity-mono-smoke` or ignored Unity directories.
 The fake native runtime cannot execute managed IL or reproduce Unity's Mono
 fork. The real-player fixture covers one Unity release and a deliberately empty
 game, but it does not validate game-specific behavior, Unity main-thread APIs,
-hooks against UnityEngine or production game code, complex method signatures,
-detour chains involving multiple plugins, value-type instance methods,
-anti-cheat interaction, or other Unity/Mono versions. Broader real-player
-evidence is still required before compatibility can move from experimental to
-supported.
+hooks against UnityEngine or production game code, ordered chains or chains
+involving multiple real plugins, complex method signatures, value-type instance
+methods, anti-cheat interaction, or other Unity/Mono versions. Broader
+real-player evidence is still required before compatibility can move from
+experimental to supported.
 
 ## Run locally
 
