@@ -25,6 +25,7 @@ internal static class Program
             ("applies and removes a managed detour", AppliesAndRemovesManagedDetour),
             ("detours a method with ref and out parameters", DetoursMethodWithRefAndOutParameters),
             ("detours an instance method and calls the original", DetoursInstanceMethodAndCallsOriginal),
+            ("detours virtual base and override implementations independently", DetoursVirtualImplementationsIndependently),
             ("detours a value-type instance method with ref self", DetoursValueTypeInstanceMethodWithRefSelf),
             ("detours an instance constructor and calls the original", DetoursInstanceConstructorAndCallsOriginal),
             ("rejects incompatible managed detour signatures", RejectsIncompatibleManagedDetourSignatures),
@@ -168,6 +169,43 @@ internal static class Program
         value = 2;
         Assert(ManagedRefOutHookTarget.TryTransform(ref value, out output), "Restored ref/out hook target returned false.");
         Assert(value == 7 && output == 14, "Disposing the ref/out detour did not restore the target method.");
+    }
+
+    private static void DetoursVirtualImplementationsIndependently()
+    {
+        var service = new RuntimeDetourHookService();
+        var baseTarget = GetRequiredMethod(
+            typeof(ManagedVirtualBaseHookTarget),
+            nameof(ManagedVirtualBaseHookTarget.Calculate));
+        var overrideTarget = GetRequiredMethod(
+            typeof(ManagedVirtualDerivedHookTarget),
+            nameof(ManagedVirtualDerivedHookTarget.Calculate));
+        var baseInstance = new ManagedVirtualBaseHookTarget();
+        ManagedVirtualBaseHookTarget derivedInstance = new ManagedVirtualDerivedHookTarget();
+
+        Assert(baseInstance.Calculate(2) == 7, "Virtual base target did not begin with its original value.");
+        Assert(derivedInstance.Calculate(2) == 10, "Virtual override target did not begin with its original value.");
+
+        using (service.Detour(
+            baseTarget,
+            (ManagedVirtualBaseReplacement)ManagedVirtualBaseHookTarget.Replacement))
+        {
+            Assert(baseInstance.Calculate(2) == 14, "Virtual base detour did not call its original implementation.");
+            Assert(derivedInstance.Calculate(2) == 10, "Virtual base detour unexpectedly replaced the override.");
+
+            using (service.Detour(
+                overrideTarget,
+                (ManagedVirtualDerivedReplacement)ManagedVirtualDerivedHookTarget.Replacement))
+            {
+                Assert(baseInstance.Calculate(2) == 14, "Virtual override detour changed the base implementation.");
+                Assert(derivedInstance.Calculate(2) == 30, "Virtual override detour did not call its original implementation.");
+            }
+
+            Assert(derivedInstance.Calculate(2) == 10, "Removing the override detour did not restore the override.");
+        }
+
+        Assert(baseInstance.Calculate(2) == 7, "Removing the base detour did not restore the base implementation.");
+        Assert(derivedInstance.Calculate(2) == 10, "Removing the base detour changed the restored override.");
     }
 
     private static void DetoursInstanceConstructorAndCallsOriginal()
@@ -1160,6 +1198,56 @@ internal delegate int ManagedInstanceReplacement(
     ManagedInstanceOriginal original,
     ManagedInstanceHookTarget self,
     int value);
+
+internal delegate int ManagedVirtualBaseOriginal(ManagedVirtualBaseHookTarget self, int value);
+
+internal delegate int ManagedVirtualBaseReplacement(
+    ManagedVirtualBaseOriginal original,
+    ManagedVirtualBaseHookTarget self,
+    int value);
+
+internal delegate int ManagedVirtualDerivedOriginal(ManagedVirtualDerivedHookTarget self, int value);
+
+internal delegate int ManagedVirtualDerivedReplacement(
+    ManagedVirtualDerivedOriginal original,
+    ManagedVirtualDerivedHookTarget self,
+    int value);
+
+internal class ManagedVirtualBaseHookTarget
+{
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public virtual int Calculate(int value)
+    {
+        return value + 5;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int Replacement(
+        ManagedVirtualBaseOriginal original,
+        ManagedVirtualBaseHookTarget self,
+        int value)
+    {
+        return original(self, value) * 2;
+    }
+}
+
+internal sealed class ManagedVirtualDerivedHookTarget : ManagedVirtualBaseHookTarget
+{
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public override int Calculate(int value)
+    {
+        return value + 8;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int Replacement(
+        ManagedVirtualDerivedOriginal original,
+        ManagedVirtualDerivedHookTarget self,
+        int value)
+    {
+        return original(self, value) + 20;
+    }
+}
 
 internal delegate void ManagedConstructorOriginal(ManagedConstructorHookTarget self, int value);
 

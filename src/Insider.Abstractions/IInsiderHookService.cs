@@ -11,7 +11,7 @@ public interface IInsiderHookService
     /// <summary>
     /// Replaces or wraps a managed method or instance constructor until the returned handle is disposed.
     /// </summary>
-    /// <param name="target">The managed method or instance constructor to detour.</param>
+    /// <param name="target">The exact managed method implementation or instance constructor to detour.</param>
     /// <param name="replacement">
     /// A delegate with the target signature, including <c>self</c> for instance
     /// methods and constructors. Value-type methods receive <c>self</c> by

@@ -161,6 +161,52 @@ private static int Replacement(
 
 The `self` parameter is required even when the replacement does not use it.
 
+## Virtual methods and overrides
+
+A virtual base method and each override are separate hook targets. Reflect the
+exact implementation with `BindingFlags.DeclaredOnly`, then use that declaring
+type as `self` in its delegates:
+
+```csharp
+var baseTarget = typeof(Enemy).GetMethod(
+    nameof(Enemy.CalculateDamage),
+    BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+    ?? throw new InvalidOperationException("Base target not found.");
+
+var overrideTarget = typeof(BossEnemy).GetMethod(
+    nameof(BossEnemy.CalculateDamage),
+    BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+    ?? throw new InvalidOperationException("Override target not found.");
+
+_baseHook = context.Hooks.Detour(
+    baseTarget,
+    (EnemyDamageHook)ReplaceEnemyDamage);
+_overrideHook = context.Hooks.Detour(
+    overrideTarget,
+    (BossDamageHook)ReplaceBossDamage);
+```
+
+The delegate types are distinct because their `self` types are distinct:
+
+```csharp
+private delegate int EnemyDamageOriginal(Enemy self, int amount);
+private delegate int EnemyDamageHook(
+    EnemyDamageOriginal original,
+    Enemy self,
+    int amount);
+
+private delegate int BossDamageOriginal(BossEnemy self, int amount);
+private delegate int BossDamageHook(
+    BossDamageOriginal original,
+    BossEnemy self,
+    int amount);
+```
+
+Hooking the base implementation does not automatically hook an override, and
+hooking an override does not change the base implementation. If an override
+explicitly calls the base implementation, that base call still reaches the base
+hook. Each returned handle removes only its own implementation's detour.
+
 ## Value-type instance methods
 
 An instance method declared on a struct receives `self` by reference. Both the
@@ -356,6 +402,7 @@ The current managed backend supports:
 - Static methods.
 - Declared `ref` and `out` parameters.
 - Reference-type instance methods with `self`.
+- Virtual base methods and overrides as independently targeted implementations.
 - Value-type instance methods with `ref self`.
 - Reference-type instance constructors.
 - Direct replacements and synchronous original-call continuations.

@@ -67,7 +67,7 @@ function Require-Text {
         throw "Expected smoke-test output not found: '$Path'."
     }
 
-    $content = Get-Content -LiteralPath $Path -Raw
+    $content = [System.IO.File]::ReadAllText($Path)
     if (-not $content.Contains($Expected, [System.StringComparison]::Ordinal)) {
         throw "'$Path' does not contain expected text '$Expected'."
     }
@@ -86,7 +86,7 @@ function Reject-Text {
         throw "Expected smoke-test output not found: '$Path'."
     }
 
-    $content = Get-Content -LiteralPath $Path -Raw
+    $content = [System.IO.File]::ReadAllText($Path)
     if ($content.Contains($Rejected, [System.StringComparison]::Ordinal)) {
         throw "'$Path' contains rejected text '$Rejected'."
     }
@@ -229,6 +229,8 @@ Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "Hook
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "RefOutValue=8"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "RefOutOutput=26"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "InstanceHookedValue=42"
+Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "VirtualBaseHookedValue=14"
+Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "VirtualOverrideHookedValue=30"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "ValueTypeHookedValue=42"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "ValueTypeState=7"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-game-hooked.txt") "GameHookAssembly=Assembly-CSharp"
@@ -241,6 +243,8 @@ Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "Ho
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "RefOutValue=8"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "RefOutOutput=26"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "InstanceHookedValue=42"
+Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "VirtualBaseHookedValue=14"
+Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "VirtualOverrideHookedValue=30"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "ValueTypeHookedValue=42"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "ValueTypeState=7"
 Require-Text $playerLog "INSIDER_UNITY_MONO_SMOKE_PLAYER_STARTED"

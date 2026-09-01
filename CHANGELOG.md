@@ -63,3 +63,6 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Explicit `ref` and `out` parameter support with readable by-reference
   diagnostics, managed mutation/restoration tests, and real Unity Mono
   coverage.
+- Independently targeted virtual base and override detours, including exact
+  `self` signatures, selective removal tests, real Unity Mono coverage, and
+  documented `DeclaredOnly` reflection guidance.

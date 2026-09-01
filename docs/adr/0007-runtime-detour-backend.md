@@ -20,7 +20,8 @@ constructors. Signatures must match exactly. Reference-type instance members
 add `self` before their declared parameters; value-type instance methods add
 `ref self` so mutations reach the original struct. Declared managed by-reference
 parameters, including C# `ref` and `out`, retain their position and propagate
-mutations through replacements and original calls. Constructors have a `void`
+mutations through replacements and original calls. Virtual base methods and
+overrides are targeted as distinct implementations. Constructors have a `void`
 return type. A replacement may prepend an original-call delegate with the
 target signature and invoke it synchronously. Multiple detours may compose
 through that continuation, while each removal handle affects only its own node.
