@@ -38,6 +38,13 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
             throw new ArgumentException("Open generic methods cannot be detoured.", nameof(target));
         }
 
+        if ((target is MethodInfo method && method.IsGenericMethod) ||
+            (target.DeclaringType?.IsGenericType ?? false))
+        {
+            throw new NotSupportedException(
+                "Generic methods and members declared on generic types are not supported by the current RuntimeDetour backend.");
+        }
+
         if (replacement.Method.ContainsGenericParameters)
         {
             throw new ArgumentException("Open generic replacement methods cannot be used as detours.", nameof(replacement));

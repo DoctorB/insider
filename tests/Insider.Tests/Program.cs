@@ -24,15 +24,21 @@ internal static class Program
             ("scopes plugin log messages by id", ScopesPluginLogMessagesById),
             ("applies and removes a managed detour", AppliesAndRemovesManagedDetour),
             ("detours a method with ref and out parameters", DetoursMethodWithRefAndOutParameters),
+            ("detours a method with in parameters", DetoursMethodWithInParameters),
+            ("detours a method with a by-reference return", DetoursMethodWithByReferenceReturn),
+            ("rejects generic managed detour targets", RejectsGenericManagedDetourTargets),
             ("detours an instance method and calls the original", DetoursInstanceMethodAndCallsOriginal),
             ("detours virtual base and override implementations independently", DetoursVirtualImplementationsIndependently),
             ("detours a value-type instance method with ref self", DetoursValueTypeInstanceMethodWithRefSelf),
             ("detours an instance constructor and calls the original", DetoursInstanceConstructorAndCallsOriginal),
             ("rejects incompatible managed detour signatures", RejectsIncompatibleManagedDetourSignatures),
+            ("rejects multicast managed detour replacements", RejectsMulticastManagedDetourReplacement),
             ("chains and selectively removes managed detours", ChainsAndSelectivelyRemovesManagedDetours),
             ("removes plugin detours during unload", RemovesPluginDetoursDuringUnload),
             ("removes plugin detours after failed load", RemovesPluginDetoursAfterFailedLoad),
             ("preserves other plugin detours after failed load", PreservesOtherPluginDetoursAfterFailedLoad),
+            ("retries a failed plugin detour removal", RetriesFailedPluginDetourRemoval),
+            ("continues plugin detour cleanup after a removal failure", ContinuesPluginDetourCleanupAfterFailure),
             ("unloads plugins in reverse order", UnloadsInReverseOrder),
             ("loads required plugin dependencies first", LoadsRequiredPluginDependenciesFirst),
             ("loads present optional plugin dependencies first", LoadsPresentOptionalPluginDependenciesFirst),
@@ -63,7 +69,7 @@ internal static class Program
             catch (Exception exception)
             {
                 failed++;
-                Console.Error.WriteLine($"FAIL {test.Name}: {exception.Message}");
+                Console.Error.WriteLine($"FAIL {test.Name}: {exception}");
             }
         }
 
@@ -126,12 +132,13 @@ internal static class Program
         var target = GetRequiredMethod(typeof(ManagedHookTarget), nameof(ManagedHookTarget.Value));
 
         Assert(ManagedHookTarget.Value() == 7, "Managed hook target did not begin with its original value.");
-        using (service.Detour(target, (Func<int>)ManagedHookTarget.Replacement))
-        {
-            Assert(ManagedHookTarget.Value() == 42, "Managed detour did not replace the target method.");
-        }
+        using var handle = service.Detour(target, (Func<int>)ManagedHookTarget.Replacement);
+        Assert(ManagedHookTarget.Value() == 42, "Managed detour did not replace the target method.");
 
-        Assert(ManagedHookTarget.Value() == 7, "Disposing the managed detour did not restore the target method.");
+        handle.Dispose();
+        handle.Dispose();
+
+        Assert(ManagedHookTarget.Value() == 7, "Idempotent managed detour disposal did not restore the target method.");
     }
 
     private static void DetoursInstanceMethodAndCallsOriginal()
@@ -169,6 +176,72 @@ internal static class Program
         value = 2;
         Assert(ManagedRefOutHookTarget.TryTransform(ref value, out output), "Restored ref/out hook target returned false.");
         Assert(value == 7 && output == 14, "Disposing the ref/out detour did not restore the target method.");
+    }
+
+    private static void DetoursMethodWithInParameters()
+    {
+        var service = new RuntimeDetourHookService();
+        var target = GetRequiredMethod(typeof(ManagedInHookTarget), nameof(ManagedInHookTarget.Transform));
+        var value = 2;
+
+        Assert(ManagedInHookTarget.Transform(in value) == 7, "In-parameter target did not begin with its original value.");
+        using (service.Detour(target, (ManagedInReplacement)ManagedInHookTarget.Replacement))
+        {
+            Assert(ManagedInHookTarget.Transform(in value) == 14, "In-parameter detour did not call the original method.");
+        }
+
+        Assert(ManagedInHookTarget.Transform(in value) == 7, "Disposing the in-parameter detour did not restore the target.");
+    }
+
+    private static void DetoursMethodWithByReferenceReturn()
+    {
+        var service = new RuntimeDetourHookService();
+        var target = GetRequiredMethod(typeof(ManagedRefReturnHookTarget), nameof(ManagedRefReturnHookTarget.Value));
+
+        ref var original = ref ManagedRefReturnHookTarget.Value();
+        Assert(original == 7, "By-reference return target did not begin with its original value.");
+
+        using (service.Detour(target, (ManagedRefReturnReplacement)ManagedRefReturnHookTarget.Replacement))
+        {
+            ref var hooked = ref ManagedRefReturnHookTarget.Value();
+            Assert(hooked == 42, "By-reference detour did not return the replacement storage.");
+            Assert(ManagedRefReturnHookTarget.OriginalValue == 12, "By-reference original call did not preserve its mutation.");
+
+            hooked = 50;
+            Assert(ManagedRefReturnHookTarget.ReplacementValue == 50, "Returned managed reference did not remain writable.");
+        }
+
+        ref var restored = ref ManagedRefReturnHookTarget.Value();
+        Assert(restored == 12, "Disposing the by-reference detour did not restore the original storage.");
+    }
+
+    private static void RejectsGenericManagedDetourTargets()
+    {
+        var service = new RuntimeDetourHookService();
+        var definition = GetRequiredMethod(typeof(ManagedGenericHookTarget), nameof(ManagedGenericHookTarget.Echo));
+        var closedMethod = definition.MakeGenericMethod(typeof(int));
+        var genericTypeMember = GetRequiredMethod(
+            typeof(ManagedGenericTypeHookTarget<int>),
+            nameof(ManagedGenericTypeHookTarget<int>.Echo));
+
+        var openException = AssertThrows<ArgumentException>(
+            () => service.Detour(
+                definition,
+                (ManagedGenericIntReplacement)ManagedGenericHookTarget.Replacement));
+        var methodException = AssertThrows<NotSupportedException>(
+            () => service.Detour(
+                closedMethod,
+                (ManagedGenericIntReplacement)ManagedGenericHookTarget.Replacement));
+        var typeException = AssertThrows<NotSupportedException>(
+            () => service.Detour(
+                genericTypeMember,
+                (Func<int, int>)ManagedHookTarget.ReplacementWithArgument));
+
+        Assert(
+            openException.Message.Contains("Open generic", StringComparison.Ordinal) &&
+            methodException.Message.Contains("Generic methods", StringComparison.Ordinal) &&
+            typeException.Message.Contains("generic types", StringComparison.Ordinal),
+            "Generic target rejection did not explain the backend limitation.");
     }
 
     private static void DetoursVirtualImplementationsIndependently()
@@ -265,12 +338,30 @@ internal static class Program
         Assert(
             refOutException.Message.Contains("byref System.Int32", StringComparison.Ordinal),
             "By-reference signature mismatch did not use the readable diagnostic format.");
+        Assert(
+            refOutException.Message.Contains("ManagedRefOutHookTarget.TryTransform", StringComparison.Ordinal) &&
+            refOutException.Message.Contains("System.Func<System.Boolean>", StringComparison.Ordinal),
+            "Signature mismatch did not identify the target and actual delegate type.");
         AssertThrows<ArgumentException>(
             () => service.Detour(valueTypeTarget, (Func<ManagedValueHookTarget, int>)ManagedValueHookTarget.InvalidReplacement));
         AssertThrows<NotSupportedException>(
             () => service.Detour(valueTypeConstructorTarget, (Action)ManagedStaticConstructorHookTarget.Replacement));
         AssertThrows<NotSupportedException>(
             () => service.Detour(staticConstructorTarget, (Action)ManagedStaticConstructorHookTarget.Replacement));
+    }
+
+    private static void RejectsMulticastManagedDetourReplacement()
+    {
+        var service = new RuntimeDetourHookService();
+        var target = GetRequiredMethod(typeof(ManagedHookTarget), nameof(ManagedHookTarget.Value));
+        Func<int> replacement = ManagedHookTarget.Replacement;
+        replacement += ManagedHookTarget.Replacement;
+
+        var exception = AssertThrows<ArgumentException>(() => service.Detour(target, replacement));
+        Assert(
+            exception.Message.Contains("exactly one invocation target", StringComparison.Ordinal),
+            "Multicast replacement rejection did not explain the contract violation.");
+        Assert(ManagedHookTarget.Value() == 7, "Rejected multicast replacement changed the target method.");
     }
 
     private static void ChainsAndSelectivelyRemovesManagedDetours()
@@ -331,6 +422,41 @@ internal static class Program
 
         host.UnloadAll();
         Assert(ManagedHookTarget.Value() == 7, "Unloading the remaining plugin did not restore the target.");
+    }
+
+    private static void RetriesFailedPluginDetourRemoval()
+    {
+        var hooks = new TrackingHookService(failuresBeforeSuccess: new[] { 1 });
+        using var host = CreateHost(hooks);
+
+        var result = host.Load(typeof(RetryingCleanupPlugin));
+        Assert(result.Succeeded, result.Error ?? "Retrying cleanup plugin did not load.");
+
+        host.UnloadAll();
+
+        var detour = hooks.Detours.Single();
+        Assert(RetryingCleanupPlugin.ObservedFirstFailure, "Plugin did not observe the first removal failure.");
+        Assert(detour.DisposeAttempts == 2, "Failed plugin detour removal was not retried by context cleanup.");
+        Assert(detour.IsDisposed, "Retried plugin detour removal did not complete.");
+    }
+
+    private static void ContinuesPluginDetourCleanupAfterFailure()
+    {
+        var hooks = new TrackingHookService(failuresBeforeSuccess: new[] { 0, int.MaxValue });
+        var context = new TestContext(hooks);
+        using var host = new PluginHost(context);
+
+        var result = host.Load(typeof(MultipleCleanupPlugin));
+        Assert(result.Succeeded, result.Error ?? "Multiple cleanup plugin did not load.");
+
+        host.UnloadAll();
+
+        Assert(hooks.Detours.Count == 2, "Unexpected number of tracked cleanup detours.");
+        Assert(hooks.Detours[1].DisposeAttempts == 1, "Failing detour was not attempted during cleanup.");
+        Assert(hooks.Detours[0].IsDisposed, "Cleanup stopped before removing the remaining detour.");
+        Assert(
+            context.CapturedLogger.Messages.Any(message => message.Contains("detour cleanup failed", StringComparison.Ordinal)),
+            "Aggregate detour cleanup failure was not logged.");
     }
 
     private static void UnloadsInReverseOrder()
@@ -595,6 +721,8 @@ internal static class Program
         InvalidMinimumVersionPlugin.LoadCount = 0;
         RequiresNewerFoundationPlugin.LoadCount = 0;
         OptionalNewerFoundationPlugin.LoadCount = 0;
+        ManagedRefReturnHookTarget.Reset();
+        RetryingCleanupPlugin.ObservedFirstFailure = false;
         LifecycleEvents.Clear();
         PluginGraphEvents.Clear();
     }
@@ -1094,6 +1222,61 @@ internal sealed class NoOpHookService : IInsiderHookService
     }
 }
 
+internal sealed class TrackingHookService : IInsiderHookService
+{
+    private readonly Queue<int> _failuresBeforeSuccess;
+
+    public TrackingHookService(IEnumerable<int> failuresBeforeSuccess)
+    {
+        _failuresBeforeSuccess = new Queue<int>(failuresBeforeSuccess);
+    }
+
+    public List<TrackingDetour> Detours { get; } = new List<TrackingDetour>();
+
+    public IDisposable Detour(MethodBase target, Delegate replacement)
+    {
+        if (_failuresBeforeSuccess.Count == 0)
+        {
+            throw new InvalidOperationException("No tracking detour behavior was configured.");
+        }
+
+        var detour = new TrackingDetour(_failuresBeforeSuccess.Dequeue());
+        Detours.Add(detour);
+        return detour;
+    }
+
+    internal sealed class TrackingDetour : IDisposable
+    {
+        private int _failuresRemaining;
+
+        public TrackingDetour(int failuresBeforeSuccess)
+        {
+            _failuresRemaining = failuresBeforeSuccess;
+        }
+
+        public int DisposeAttempts { get; private set; }
+
+        public bool IsDisposed { get; private set; }
+
+        public void Dispose()
+        {
+            if (IsDisposed)
+            {
+                return;
+            }
+
+            DisposeAttempts++;
+            if (_failuresRemaining > 0)
+            {
+                _failuresRemaining--;
+                throw new InvalidOperationException("Expected tracking detour removal failure.");
+            }
+
+            IsDisposed = true;
+        }
+    }
+}
+
 internal sealed class TestLogger : IInsiderLogger
 {
     public List<string> Messages { get; } = new List<string>();
@@ -1189,6 +1372,87 @@ internal static class ManagedRefOutHookTarget
     public static bool InvalidReplacement()
     {
         return false;
+    }
+}
+
+internal delegate int ManagedInOriginal(in int value);
+
+internal delegate int ManagedInReplacement(ManagedInOriginal original, in int value);
+
+internal static class ManagedInHookTarget
+{
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int Transform(in int value)
+    {
+        return value + 5;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int Replacement(ManagedInOriginal original, in int value)
+    {
+        return original(in value) * 2;
+    }
+}
+
+internal delegate ref int ManagedRefReturnOriginal();
+
+internal delegate ref int ManagedRefReturnReplacement(ManagedRefReturnOriginal original);
+
+internal static class ManagedRefReturnHookTarget
+{
+    private static int _originalValue = 7;
+    private static int _replacementValue = 42;
+
+    public static int OriginalValue => _originalValue;
+
+    public static int ReplacementValue => _replacementValue;
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static ref int Value()
+    {
+        return ref _originalValue;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static ref int Replacement(ManagedRefReturnOriginal original)
+    {
+        ref var originalValue = ref original();
+        originalValue += 5;
+        return ref _replacementValue;
+    }
+
+    public static void Reset()
+    {
+        _originalValue = 7;
+        _replacementValue = 42;
+    }
+}
+
+internal delegate int ManagedGenericIntOriginal(int value);
+
+internal delegate int ManagedGenericIntReplacement(ManagedGenericIntOriginal original, int value);
+
+internal static class ManagedGenericHookTarget
+{
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static T Echo<T>(T value)
+    {
+        return value;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int Replacement(ManagedGenericIntOriginal original, int value)
+    {
+        return original(value) + 10;
+    }
+}
+
+internal static class ManagedGenericTypeHookTarget<T>
+{
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static T Echo(T value)
+    {
+        return value;
     }
 }
 
@@ -1412,6 +1676,53 @@ public sealed class FailingChainHookingPlugin : IInsiderPlugin
             ?? throw new InvalidOperationException("Managed hook target was not found.");
         _ = context.Hooks.Detour(target, (ManagedHookReplacement)ManagedHookTarget.AddOneHundred);
         throw new InvalidOperationException("Expected failure after extending a detour chain.");
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.retrying-cleanup", "Retrying Cleanup", "1.0.0")]
+public sealed class RetryingCleanupPlugin : IInsiderPlugin
+{
+    private IDisposable? _detour;
+
+    public static bool ObservedFirstFailure { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        var target = typeof(ManagedHookTarget).GetMethod(nameof(ManagedHookTarget.Value))
+            ?? throw new InvalidOperationException("Managed hook target was not found.");
+        _detour = context.Hooks.Detour(target, (Func<int>)ManagedHookTarget.Replacement);
+    }
+
+    public void Unload()
+    {
+        try
+        {
+            _detour?.Dispose();
+        }
+        catch (InvalidOperationException)
+        {
+            ObservedFirstFailure = true;
+        }
+        finally
+        {
+            _detour = null;
+        }
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.multiple-cleanup", "Multiple Cleanup", "1.0.0")]
+public sealed class MultipleCleanupPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        var target = typeof(ManagedHookTarget).GetMethod(nameof(ManagedHookTarget.Value))
+            ?? throw new InvalidOperationException("Managed hook target was not found.");
+        _ = context.Hooks.Detour(target, (Func<int>)ManagedHookTarget.Replacement);
+        _ = context.Hooks.Detour(target, (Func<int>)ManagedHookTarget.Replacement);
     }
 
     public void Unload()

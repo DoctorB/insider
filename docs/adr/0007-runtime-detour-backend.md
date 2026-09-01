@@ -21,10 +21,12 @@ add `self` before their declared parameters; value-type instance methods add
 `ref self` so mutations reach the original struct. Declared managed by-reference
 parameters, including C# `ref` and `out`, retain their position and propagate
 mutations through replacements and original calls; `in` parameters and managed
-by-reference returns also retain their CLR by-reference types. Fully
-constructed generic methods and declaring types are supported, while open
-generic definitions are rejected. Virtual base methods and overrides are
-targeted as distinct implementations. Constructors have a `void` return type.
+by-reference returns also retain their CLR by-reference types. Open generic
+targets, closed generic methods, and members declared on generic types are
+rejected before patching because RuntimeDetour does not support generic source
+hooks and Mono may share their generated code. Virtual base methods and
+overrides are targeted as distinct implementations. Constructors have a `void`
+return type.
 A replacement may prepend an original-call delegate with the target signature
 and invoke it synchronously. Multiple detours may compose through that
 continuation, while each removal handle affects only its own node. Insider does

@@ -16,8 +16,7 @@ public interface IInsiderHookService
     /// A delegate with the target signature, including <c>self</c> for instance
     /// methods and constructors. Value-type methods receive <c>self</c> by
     /// reference, and declared by-reference parameters and returns remain by
-    /// reference. Closed generic targets use their constructed types. The
-    /// signature may be preceded by an original-call delegate.
+    /// reference. The signature may be preceded by an original-call delegate.
     /// </param>
     /// <returns>
     /// An idempotent handle that removes the detour when disposed. If removal

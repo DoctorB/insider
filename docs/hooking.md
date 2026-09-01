@@ -191,55 +191,19 @@ private static ref int Replacement(
 Returning the value instead of the managed reference is a different signature
 and is rejected before the backend applies the detour.
 
-## Closed generic methods
+## Generic targets
 
-Open generic definitions cannot be executed and are rejected. A fully
-constructed method is an eligible concrete hook target. Reflect the definition,
-close it with the exact runtime type arguments, and use those concrete types in
-the delegates:
+MonoMod.RuntimeDetour 25.3.6 does not support generic source methods, including
+fully constructed ones. Mono may also share generated code between members of
+constructed generic types. Insider therefore fails closed before patching:
 
-```csharp
-private IDisposable? _hook;
+- Open generic targets throw `ArgumentException`.
+- Closed generic methods and members declared on generic types throw
+  `NotSupportedException`.
 
-private delegate Enemy? FindEnemyOriginal(GameCache self, string id);
-private delegate Enemy? FindEnemyHook(
-    FindEnemyOriginal original,
-    GameCache self,
-    string id);
-
-private void Install(IInsiderContext context)
-{
-    var definition = typeof(GameCache).GetMethod(
-        nameof(GameCache.Find),
-        BindingFlags.Public | BindingFlags.Instance,
-        binder: null,
-        types: new[] { typeof(string) },
-        modifiers: null)
-        ?? throw new InvalidOperationException("Generic target not found.");
-
-    if (!definition.IsGenericMethodDefinition)
-    {
-        throw new InvalidOperationException("Expected a generic definition.");
-    }
-
-    var target = definition.MakeGenericMethod(typeof(Enemy));
-    _hook = context.Hooks.Detour(target, (FindEnemyHook)Replacement);
-}
-
-private static Enemy? Replacement(
-    FindEnemyOriginal original,
-    GameCache self,
-    string id)
-{
-    return original(self, id);
-}
-```
-
-The same rule applies when the declaring type is generic: every type parameter
-on both the declaring type and method must already be closed. Mono runtimes may
-share generated code between some generic instantiations, so validate isolation
-between type arguments in the exact Unity runtime and game being targeted. The
-current fixture does not yet provide that compatibility evidence.
+Generic types remain valid as ordinary parameter or return types of a
+non-generic member declared on a non-generic type. The restriction concerns the
+hook target itself.
 
 ## Reference-type instance methods
 
@@ -528,7 +492,6 @@ The current managed backend supports:
 - Static methods.
 - Declared `ref`, `out`, and `in` parameters.
 - Managed by-reference returns.
-- Fully constructed generic methods and declaring types.
 - Reference-type instance methods with `self`.
 - Virtual base methods and overrides as independently targeted implementations.
 - Value-type instance methods with `ref self`.
@@ -542,7 +505,7 @@ The current managed backend supports:
 It deliberately rejects or does not expose:
 
 - Abstract methods.
-- Open generic methods.
+- Open and closed generic methods, and members declared on generic types.
 - Multicast replacement delegates.
 - Variable-argument methods.
 - Static constructors and value-type constructors.

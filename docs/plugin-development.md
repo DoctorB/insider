@@ -130,12 +130,11 @@ instance-method or constructor replacement receives the declaring type as
 `self` before those arguments. Constructors use a `void` replacement and
 original-call delegate. Declared `ref`, `out`, and `in` parameters remain by
 reference in both delegate signatures; the same applies to by-reference
-returns. Fully constructed generic methods are supported, but open generic
-definitions are rejected. Virtual base methods and overrides use their exact
-declaring type as `self` and must be reflected separately. To call the original
-behavior, prepend a delegate with that same return type and parameter list, as
-in the example above. Call this delegate only synchronously while the
-replacement is executing; do not store it.
+returns. Virtual base methods and overrides use their exact declaring type as
+`self` and must be reflected separately. To call the original behavior, prepend
+a delegate with that same return type and parameter list, as in the example
+above. Call this delegate only synchronously while the replacement is
+executing; do not store it.
 
 Value-type instance methods use `ref self`; both the replacement and its
 original-call delegate must declare it exactly:
@@ -175,11 +174,11 @@ plugins. Do not force an early private copy with `Assembly.Load`; observe
 arrives, and unsubscribe during `Unload()`. Detours created through the saved
 plugin context remain loader-owned.
 
-Abstract methods, open generic methods, multicast replacement delegates,
-variable-argument methods, static constructors, and value-type constructors are
-rejected. IL rewriting, HookGen, ordering controls, and native hooks remain
-outside the Insider contract even when the underlying backend offers related
-features.
+Abstract methods, all generic methods, members declared on generic types,
+multicast replacement delegates, variable-argument methods, static constructors,
+and value-type constructors are rejected. IL rewriting, HookGen, ordering
+controls, and native hooks remain outside the Insider contract even when the
+underlying backend offers related features.
 
 ## Installation layout
 

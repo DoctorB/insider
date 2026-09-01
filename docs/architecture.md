@@ -79,10 +79,11 @@ construction applies the detour immediately and disposal removes it.
 Replacements use exact signatures, preserve declared by-reference parameters,
 include `self` for reference-type instance members and `ref self` for value-type
 instance methods, preserve managed by-reference returns, and may prepend an
-original-call delegate to wrap existing behavior. Fully constructed generic
-methods are concrete targets; open generic definitions are rejected. Virtual
-base methods and overrides are separate reflected implementations and separate
-hook targets. Constructors use `void` signatures. Multiple detours can form a
+original-call delegate to wrap existing behavior. Generic methods and members
+of generic types fail closed because RuntimeDetour does not support generic
+source hooks and Mono may share their generated code. Virtual base methods and
+overrides are separate reflected implementations and separate hook targets.
+Constructors use `void` signatures. Multiple detours can form a
 continuation chain, but every handle remains independently owned and removable.
 The backend wraps application and removal failures in `InsiderHookException`;
 successful disposal is idempotent, while failed disposal keeps the handle
