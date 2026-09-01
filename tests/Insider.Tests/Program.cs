@@ -24,6 +24,7 @@ internal static class Program
             ("scopes plugin log messages by id", ScopesPluginLogMessagesById),
             ("applies and removes a managed detour", AppliesAndRemovesManagedDetour),
             ("detours an instance method and calls the original", DetoursInstanceMethodAndCallsOriginal),
+            ("detours an instance constructor and calls the original", DetoursInstanceConstructorAndCallsOriginal),
             ("rejects incompatible managed detour signatures", RejectsIncompatibleManagedDetourSignatures),
             ("chains and selectively removes managed detours", ChainsAndSelectivelyRemovesManagedDetours),
             ("removes plugin detours during unload", RemovesPluginDetoursDuringUnload),
@@ -145,12 +146,32 @@ internal static class Program
         Assert(instance.Add(4) == 7, "Disposing the instance detour did not restore the target method.");
     }
 
+    private static void DetoursInstanceConstructorAndCallsOriginal()
+    {
+        var service = new RuntimeDetourHookService();
+        var target = GetRequiredConstructor(typeof(ManagedConstructorHookTarget), typeof(int));
+
+        var original = (ManagedConstructorHookTarget)target.Invoke(new object[] { 5 });
+        Assert(original.Value == 5, "Constructor hook target did not begin with its original value.");
+
+        using (service.Detour(target, (ManagedConstructorReplacement)ManagedConstructorHookTarget.Replacement))
+        {
+            var hooked = (ManagedConstructorHookTarget)target.Invoke(new object[] { 5 });
+            Assert(hooked.Value == 12, "Constructor detour did not receive self or call the original constructor.");
+        }
+
+        var restored = (ManagedConstructorHookTarget)target.Invoke(new object[] { 5 });
+        Assert(restored.Value == 5, "Disposing the constructor detour did not restore the target constructor.");
+    }
+
     private static void RejectsIncompatibleManagedDetourSignatures()
     {
         var service = new RuntimeDetourHookService();
         var staticTarget = GetRequiredMethod(typeof(ManagedHookTarget), nameof(ManagedHookTarget.Value));
         var instanceTarget = GetRequiredMethod(typeof(ManagedInstanceHookTarget), nameof(ManagedInstanceHookTarget.Add));
         var valueTypeTarget = GetRequiredMethod(typeof(ManagedValueHookTarget), nameof(ManagedValueHookTarget.Value));
+        var staticConstructorTarget = typeof(ManagedStaticConstructorHookTarget).TypeInitializer
+            ?? throw new InvalidOperationException("Static constructor hook target was not found.");
 
         AssertThrows<ArgumentException>(
             () => service.Detour(staticTarget, (Func<int, int>)ManagedHookTarget.ReplacementWithArgument));
@@ -158,6 +179,8 @@ internal static class Program
             () => service.Detour(instanceTarget, (Func<int, int>)ManagedInstanceHookTarget.ReplacementWithoutSelf));
         AssertThrows<NotSupportedException>(
             () => service.Detour(valueTypeTarget, (Func<ManagedValueHookTarget, int>)ManagedValueHookTarget.Replacement));
+        AssertThrows<NotSupportedException>(
+            () => service.Detour(staticConstructorTarget, (Action)ManagedStaticConstructorHookTarget.Replacement));
     }
 
     private static void ChainsAndSelectivelyRemovesManagedDetours()
@@ -459,6 +482,16 @@ internal static class Program
     {
         return type.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)
             ?? throw new InvalidOperationException($"Method '{type.FullName}.{name}' was not found.");
+    }
+
+    private static ConstructorInfo GetRequiredConstructor(Type type, params Type[] parameterTypes)
+    {
+        return type.GetConstructor(
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+            binder: null,
+            parameterTypes,
+            modifiers: null)
+            ?? throw new InvalidOperationException($"Constructor on '{type.FullName}' was not found.");
     }
 
     private static void ResetFixtures()
@@ -958,7 +991,7 @@ internal sealed class TestContext : IInsiderContext
 
 internal sealed class NoOpHookService : IInsiderHookService
 {
-    public IDisposable Detour(MethodInfo target, Delegate replacement)
+    public IDisposable Detour(MethodBase target, Delegate replacement)
     {
         return new NoOpDetour();
     }
@@ -1041,6 +1074,33 @@ internal delegate int ManagedInstanceReplacement(
     ManagedInstanceHookTarget self,
     int value);
 
+internal delegate void ManagedConstructorOriginal(ManagedConstructorHookTarget self, int value);
+
+internal delegate void ManagedConstructorReplacement(
+    ManagedConstructorOriginal original,
+    ManagedConstructorHookTarget self,
+    int value);
+
+internal sealed class ManagedConstructorHookTarget
+{
+    public ManagedConstructorHookTarget(int value)
+    {
+        Value = value;
+    }
+
+    public int Value { get; private set; }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void Replacement(
+        ManagedConstructorOriginal original,
+        ManagedConstructorHookTarget self,
+        int value)
+    {
+        original(self, value + 1);
+        self.Value *= 2;
+    }
+}
+
 internal sealed class ManagedInstanceHookTarget
 {
     private readonly int _baseValue;
@@ -1081,6 +1141,17 @@ internal struct ManagedValueHookTarget
     public static int Replacement(ManagedValueHookTarget self)
     {
         return self.Value();
+    }
+}
+
+internal static class ManagedStaticConstructorHookTarget
+{
+    static ManagedStaticConstructorHookTarget()
+    {
+    }
+
+    public static void Replacement()
+    {
     }
 }
 

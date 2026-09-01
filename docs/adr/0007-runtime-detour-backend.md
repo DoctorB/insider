@@ -12,22 +12,24 @@ contract.
 
 ## Decision
 
-Insider uses MonoMod.RuntimeDetour 25.3.6 behind `IInsiderHookService`. The first
-public operation accepts a `MethodInfo` and compatible replacement `Delegate`,
-applies the detour immediately, and returns an `IDisposable` removal handle.
-Signatures must match exactly. Reference-type instance methods add `self` before
-their declared parameters. A replacement may prepend an original-call delegate
-with the target signature and invoke it synchronously. Multiple detours may
-compose through that continuation, while each removal handle affects only its
-own node. Insider does not define their inter-plugin execution order.
+Insider uses MonoMod.RuntimeDetour 25.3.6 behind `IInsiderHookService`. Its
+single public operation accepts a managed `MethodBase` and compatible
+replacement `Delegate`, applies the detour immediately, and returns an
+`IDisposable` removal handle. The supported targets are methods and instance
+constructors. Signatures must match exactly. Reference-type instance members
+add `self` before their declared parameters; constructors have a `void` return
+type. A replacement may prepend an original-call delegate with the target
+signature and invoke it synchronously. Multiple detours may compose through
+that continuation, while each removal handle affects only its own node. Insider
+does not define their inter-plugin execution order.
 
 The loader scopes every handle to the plugin that created it. Handles are
 removed in reverse creation order after `Unload()` and are also removed when
 `Load()` fails. Plugins may dispose a handle earlier.
 
-Value-type instance methods, variable-argument methods, IL hooks, HookGen,
-native detours, ordering controls, and third-party types are outside this first
-public contract.
+Value-type instance members, static constructors, variable-argument methods, IL
+hooks, HookGen, native detours, ordering controls, and third-party types are
+outside this first public contract.
 
 ## Consequences
 

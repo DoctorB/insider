@@ -48,3 +48,6 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Assembly-CSharp` instance and detours a method invoked directly by the player.
 - Multi-detour chain coverage with selective removal and failed-plugin cleanup
   that preserves hooks owned by other plugins, plus a two-node Unity game hook.
+- Instance-constructor detours through the same minimal `MethodBase` API,
+  including exact `void` signatures, `self`, synchronous original calls, and
+  deterministic removal coverage.

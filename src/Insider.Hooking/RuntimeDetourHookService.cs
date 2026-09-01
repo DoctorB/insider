@@ -6,7 +6,7 @@ namespace Insider.Hooking;
 
 public sealed class RuntimeDetourHookService : IInsiderHookService
 {
-    public IDisposable Detour(MethodInfo target, Delegate replacement)
+    public IDisposable Detour(MethodBase target, Delegate replacement)
     {
         if (target is null)
         {
@@ -16,6 +16,16 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
         if (replacement is null)
         {
             throw new ArgumentNullException(nameof(replacement));
+        }
+
+        if (target is not MethodInfo && target is not ConstructorInfo)
+        {
+            throw new NotSupportedException("Only managed methods and constructors can be detoured.");
+        }
+
+        if (target is ConstructorInfo constructor && constructor.IsStatic)
+        {
+            throw new NotSupportedException("Static constructors are not supported by the Insider hook contract.");
         }
 
         if (target.IsAbstract)
@@ -38,14 +48,15 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
         return new Hook(target, replacement);
     }
 
-    private static void ValidateSignature(MethodInfo target, Delegate replacement)
+    private static void ValidateSignature(MethodBase target, Delegate replacement)
     {
         var expectedParameters = GetExpectedParameters(target);
+        var returnType = GetReturnType(target);
         var replacementInvoke = GetDelegateInvoke(replacement.GetType());
         var replacementParameters = replacementInvoke.GetParameters();
 
         var isDirectReplacement =
-            replacementInvoke.ReturnType == target.ReturnType &&
+            replacementInvoke.ReturnType == returnType &&
             ParametersMatch(replacementParameters, expectedParameters, offset: 0);
         if (isDirectReplacement)
         {
@@ -53,22 +64,22 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
         }
 
         var hasOriginalCall =
-            replacementInvoke.ReturnType == target.ReturnType &&
+            replacementInvoke.ReturnType == returnType &&
             replacementParameters.Length == expectedParameters.Length + 1 &&
-            OriginalDelegateMatches(replacementParameters[0].ParameterType, target.ReturnType, expectedParameters) &&
+            OriginalDelegateMatches(replacementParameters[0].ParameterType, returnType, expectedParameters) &&
             ParametersMatch(replacementParameters, expectedParameters, offset: 1);
         if (hasOriginalCall)
         {
             return;
         }
 
-        var directSignature = FormatSignature(target.ReturnType, expectedParameters);
+        var directSignature = FormatSignature(returnType, expectedParameters);
         throw new ArgumentException(
             $"Replacement delegate must match '{directSignature}', optionally preceded by an original-call delegate with the same signature.",
             nameof(replacement));
     }
 
-    private static Type[] GetExpectedParameters(MethodInfo target)
+    private static Type[] GetExpectedParameters(MethodBase target)
     {
         var methodParameters = target.GetParameters();
         var offset = target.IsStatic ? 0 : 1;
@@ -77,10 +88,10 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
         if (!target.IsStatic)
         {
             var declaringType = target.DeclaringType
-                ?? throw new NotSupportedException("Instance methods without a declaring type are not supported.");
+                ?? throw new NotSupportedException("Instance members without a declaring type are not supported.");
             if (declaringType.IsValueType)
             {
-                throw new NotSupportedException("Instance methods declared on value types are not supported yet.");
+                throw new NotSupportedException("Instance members declared on value types are not supported yet.");
             }
 
             expected[0] = declaringType;
@@ -92,6 +103,11 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
         }
 
         return expected;
+    }
+
+    private static Type GetReturnType(MethodBase target)
+    {
+        return target is MethodInfo method ? method.ReturnType : typeof(void);
     }
 
     private static bool OriginalDelegateMatches(Type delegateType, Type returnType, Type[] expectedParameters)

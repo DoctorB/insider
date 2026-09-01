@@ -12,10 +12,10 @@ metadata, duplicate identifiers, failure containment, reverse unload order,
 required and optional plugin dependency ordering, missing dependencies, cycles,
 failure propagation, numeric version validation, minimum-version enforcement,
 plugin-scoped logging, managed detour application/removal, detour cleanup after
-unload or failed load, exact-signature rejection, instance-method detours with
-original calls, multi-detour chains, selective removal, cross-plugin ownership
-isolation, installation manifests, hash verification, and proxy backup
-restoration.
+unload or failed load, exact-signature rejection, instance-method and
+instance-constructor detours with original calls, multi-detour chains,
+selective removal, cross-plugin ownership isolation, installation manifests,
+hash verification, and proxy backup restoration.
 
 ### Managed bootstrap integration fixture
 
@@ -98,8 +98,9 @@ The fake native runtime cannot execute managed IL or reproduce Unity's Mono
 fork. The real-player fixture covers one Unity release and a deliberately empty
 game, but it does not validate game-specific behavior, Unity main-thread APIs,
 hooks against UnityEngine or production game code, ordered chains or chains
-involving multiple real plugins, complex method signatures, value-type instance
-methods, anti-cheat interaction, or other Unity/Mono versions. Broader
+involving multiple real plugins, constructor hooks inside Unity, complex method
+signatures, value-type instance members, anti-cheat interaction, or other
+Unity/Mono versions. Broader
 real-player evidence is still required before compatibility can move from
 experimental to supported.
 

@@ -17,7 +17,7 @@ internal sealed class PluginHookService : IInsiderHookService, IDisposable
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
     }
 
-    public IDisposable Detour(MethodInfo target, Delegate replacement)
+    public IDisposable Detour(MethodBase target, Delegate replacement)
     {
         lock (_sync)
         {
