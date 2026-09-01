@@ -66,3 +66,10 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Independently targeted virtual base and override detours, including exact
   `self` signatures, selective removal tests, real Unity Mono coverage, and
   documented `DeclaredOnly` reflection guidance.
+- Concrete closed-generic targets, `in` parameters, and managed by-reference
+  returns within the existing exact-signature hook contract.
+- Idempotent, retryable detour removal that keeps failed handles under plugin
+  ownership, attempts the remaining cleanup, and reports aggregate failures.
+- Stable `InsiderHookException` wrapping backend application and removal
+  failures, plus target-aware readable signature diagnostics and explicit
+  multicast-delegate rejection.

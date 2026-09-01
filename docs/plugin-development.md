@@ -128,8 +128,10 @@ failed `Load()`.
 Signatures are exact. A direct replacement receives the target arguments. An
 instance-method or constructor replacement receives the declaring type as
 `self` before those arguments. Constructors use a `void` replacement and
-original-call delegate. Declared `ref` and `out` parameters remain by reference
-in both delegate signatures. Virtual base methods and overrides use their exact
+original-call delegate. Declared `ref`, `out`, and `in` parameters remain by
+reference in both delegate signatures; the same applies to by-reference
+returns. Fully constructed generic methods are supported, but open generic
+definitions are rejected. Virtual base methods and overrides use their exact
 declaring type as `self` and must be reflected separately. To call the original
 behavior, prepend a delegate with that same return type and parameter list, as
 in the example above. Call this delegate only synchronously while the
@@ -162,6 +164,10 @@ inter-plugin detour order yet. Disposing one handle removes only that detour;
 cleanup after a failed plugin load does not remove detours owned by other
 plugins.
 
+Disposal is idempotent. If the runtime cannot remove a detour, the handle stays
+retryable and the failure is reported as `InsiderHookException`; loader cleanup
+continues with the plugin's other handles and aggregates any failures.
+
 Hook the `MethodInfo` or `ConstructorInfo` from the assembly instance Unity
 actually uses. Game assemblies such as `Assembly-CSharp` may load after Insider
 plugins. Do not force an early private copy with `Assembly.Load`; observe
@@ -169,10 +175,11 @@ plugins. Do not force an early private copy with `Assembly.Load`; observe
 arrives, and unsubscribe during `Unload()`. Detours created through the saved
 plugin context remain loader-owned.
 
-Abstract methods, open generic methods, variable-argument methods, static
-constructors, and value-type constructors are rejected. IL rewriting, HookGen,
-ordering controls, and native hooks remain outside the Insider contract even
-when the underlying backend offers related features.
+Abstract methods, open generic methods, multicast replacement delegates,
+variable-argument methods, static constructors, and value-type constructors are
+rejected. IL rewriting, HookGen, ordering controls, and native hooks remain
+outside the Insider contract even when the underlying backend offers related
+features.
 
 ## Installation layout
 

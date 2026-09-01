@@ -111,8 +111,9 @@ fork. The real-player fixture covers one Unity release and a deliberately empty
 game, but it does not validate game-specific behavior, Unity main-thread APIs,
 hooks against UnityEngine or production game code, ordered chains or chains
 involving multiple real plugins, constructor hooks inside Unity, complex method
-signatures, value-type constructors, anti-cheat interaction, or other Unity/Mono
-versions. Broader
+signatures such as `in` parameters, by-reference returns, and closed generic
+methods, removal-failure retry paths, value-type constructors, anti-cheat
+interaction, or other Unity/Mono versions. Broader
 real-player evidence is still required before compatibility can move from
 experimental to supported.
 

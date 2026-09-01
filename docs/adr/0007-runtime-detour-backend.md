@@ -20,16 +20,24 @@ constructors. Signatures must match exactly. Reference-type instance members
 add `self` before their declared parameters; value-type instance methods add
 `ref self` so mutations reach the original struct. Declared managed by-reference
 parameters, including C# `ref` and `out`, retain their position and propagate
-mutations through replacements and original calls. Virtual base methods and
-overrides are targeted as distinct implementations. Constructors have a `void`
-return type. A replacement may prepend an original-call delegate with the
-target signature and invoke it synchronously. Multiple detours may compose
-through that continuation, while each removal handle affects only its own node.
-Insider does not define their inter-plugin execution order.
+mutations through replacements and original calls; `in` parameters and managed
+by-reference returns also retain their CLR by-reference types. Fully
+constructed generic methods and declaring types are supported, while open
+generic definitions are rejected. Virtual base methods and overrides are
+targeted as distinct implementations. Constructors have a `void` return type.
+A replacement may prepend an original-call delegate with the target signature
+and invoke it synchronously. Multiple detours may compose through that
+continuation, while each removal handle affects only its own node. Insider does
+not define their inter-plugin execution order.
 
 The loader scopes every handle to the plugin that created it. Handles are
 removed in reverse creation order after `Unload()` and are also removed when
-`Load()` fails. Plugins may dispose a handle earlier.
+`Load()` fails. Plugins may dispose a handle earlier. Successful disposal is
+idempotent. A failed removal leaves the handle tracked so it can be retried,
+rather than reporting success for a possibly active detour. Runtime application
+and removal failures are exposed as `InsiderHookException` with the underlying
+backend exception preserved; contract validation continues to use standard
+argument and unsupported-operation exceptions.
 
 Static constructors, value-type constructors, variable-argument methods, IL
 hooks, HookGen, native detours, ordering controls, and third-party types are
@@ -42,7 +50,8 @@ outside this first public contract.
 - Plugins can wrap game behavior without exposing a MonoMod-specific type.
 - Plugin failure cleanup preserves detours owned by other plugins in the same
   chain.
-- A failed plugin cannot leave context-owned detours installed.
+- Cleanup attempts all context-owned detours and reports failures together;
+  failed removal handles are not silently discarded.
 - The Windows package now redistributes the RuntimeDetour dependency closure;
   versions, sources, licenses, and binary hashes are recorded in
   `THIRD_PARTY_NOTICES.md`.

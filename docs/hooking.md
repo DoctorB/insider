@@ -22,7 +22,8 @@ IDisposable handle = context.Hooks.Detour(target, replacement);
 - `target` is a reflected `MethodInfo` or instance `ConstructorInfo`.
 - `replacement` is a delegate whose signature must match exactly.
 - The detour is active when `Detour` returns.
-- Disposing the handle removes only that detour.
+- Disposing the handle removes only that detour. Disposal is idempotent; after
+  a removal failure, disposing the same handle again retries it.
 - Insider owns every handle created through a plugin context and removes any
   remaining detours after `Unload()` or a failed `Load()`.
 
@@ -35,8 +36,9 @@ The signature mapping is:
 | `R Type.Method(A)` on a struct | `R Replacement(ref Type self, A)` |
 | `Type.ctor(A)` on a class | `void Replacement(Type self, A)` |
 
-Declared `ref` and `out` parameters keep their by-reference position in every
-replacement and original-call delegate.
+Declared `ref`, `out`, and `in` parameters keep their by-reference position in
+every replacement and original-call delegate. A by-reference return must also
+remain by reference.
 
 Any replacement may prepend an original-call delegate with the same return type
 and parameters shown in the table. That delegate advances to the next detour in
@@ -107,7 +109,9 @@ private static int Replacement(ComputeOriginal original, int value)
 Invoke `original` synchronously while the replacement is running. Do not store
 the delegate or invoke it later from another thread.
 
-## Ref and out parameters
+## By-reference parameters and returns
+
+### Ref and out parameters
 
 Methods that mutate arguments in place or follow the `TryGet` pattern can be
 wrapped without copying their values. Mirror each `ref` and `out` parameter in
@@ -136,6 +140,106 @@ At the CLR level, `ref` and `out` are both managed by-reference parameter types.
 Use the same modifier as the target in plugin source so intent and definite
 assignment remain clear. Insider's mismatch diagnostics render either form as
 `byref ElementType`.
+
+### In parameters
+
+Readonly by-reference parameters use `in` in both delegates and at the call
+site:
+
+```csharp
+private delegate float DistanceOriginal(in Vector3 left, in Vector3 right);
+private delegate float DistanceHook(
+    DistanceOriginal original,
+    in Vector3 left,
+    in Vector3 right);
+
+private static float Replacement(
+    DistanceOriginal original,
+    in Vector3 left,
+    in Vector3 right)
+{
+    return original(in left, in right);
+}
+```
+
+The CLR represents `ref`, `out`, and `in` using managed by-reference parameter
+types. Keep the source modifier identical to the target even when two forms are
+ABI-compatible; it preserves intent and lets the C# compiler enforce the right
+read/write rules.
+
+### By-reference returns
+
+A target that returns a managed reference needs `ref` on the original-call
+delegate, replacement delegate, replacement method, and returned expression:
+
+```csharp
+private delegate ref int ScoreOriginal(ScoreTable self, int index);
+private delegate ref int ScoreHook(
+    ScoreOriginal original,
+    ScoreTable self,
+    int index);
+
+private static ref int Replacement(
+    ScoreOriginal original,
+    ScoreTable self,
+    int index)
+{
+    return ref original(self, index);
+}
+```
+
+Returning the value instead of the managed reference is a different signature
+and is rejected before the backend applies the detour.
+
+## Closed generic methods
+
+Open generic definitions cannot be executed and are rejected. A fully
+constructed method is an eligible concrete hook target. Reflect the definition,
+close it with the exact runtime type arguments, and use those concrete types in
+the delegates:
+
+```csharp
+private IDisposable? _hook;
+
+private delegate Enemy? FindEnemyOriginal(GameCache self, string id);
+private delegate Enemy? FindEnemyHook(
+    FindEnemyOriginal original,
+    GameCache self,
+    string id);
+
+private void Install(IInsiderContext context)
+{
+    var definition = typeof(GameCache).GetMethod(
+        nameof(GameCache.Find),
+        BindingFlags.Public | BindingFlags.Instance,
+        binder: null,
+        types: new[] { typeof(string) },
+        modifiers: null)
+        ?? throw new InvalidOperationException("Generic target not found.");
+
+    if (!definition.IsGenericMethodDefinition)
+    {
+        throw new InvalidOperationException("Expected a generic definition.");
+    }
+
+    var target = definition.MakeGenericMethod(typeof(Enemy));
+    _hook = context.Hooks.Detour(target, (FindEnemyHook)Replacement);
+}
+
+private static Enemy? Replacement(
+    FindEnemyOriginal original,
+    GameCache self,
+    string id)
+{
+    return original(self, id);
+}
+```
+
+The same rule applies when the declaring type is generic: every type parameter
+on both the declaring type and method must already be closed. Mono runtimes may
+share generated code between some generic instantiations, so validate isolation
+between type arguments in the exact Unity runtime and game being targeted. The
+current fixture does not yet provide that compatibility evidence.
 
 ## Reference-type instance methods
 
@@ -319,8 +423,30 @@ Every `context.Hooks.Detour` call is scoped to the plugin that made it:
 - Removing one plugin's hooks does not remove another plugin's nodes from the
   same target chain.
 
+Handles become disposed only after the runtime confirms removal. A removal
+failure leaves the handle tracked and retryable instead of silently orphaning a
+possibly active detour. Loader cleanup attempts every owned handle even if one
+fails, then reports the failures together.
+
 Hooks created directly through third-party APIs are outside this ownership
 model and cannot be cleaned up by Insider.
+
+## Errors and diagnostics
+
+Contract validation happens before runtime patching:
+
+- Invalid or mismatched signatures throw `ArgumentException`.
+- Unsupported targets throw `NotSupportedException`.
+- A backend failure while applying or removing a valid detour throws
+  `InsiderHookException` and retains the original exception in
+  `InnerException`.
+
+Signature errors identify the reflected target, the actual delegate signature,
+and the required signature. Generic, array, pointer, and managed by-reference
+types are formatted without leaking a MonoMod type into plugin code. A
+replacement delegate must also contain exactly one invocation target;
+multicast delegates are rejected because their hook semantics would be
+ambiguous.
 
 ## Hooking late Unity assemblies
 
@@ -400,19 +526,24 @@ with an ambiguous-match exception.
 The current managed backend supports:
 
 - Static methods.
-- Declared `ref` and `out` parameters.
+- Declared `ref`, `out`, and `in` parameters.
+- Managed by-reference returns.
+- Fully constructed generic methods and declaring types.
 - Reference-type instance methods with `self`.
 - Virtual base methods and overrides as independently targeted implementations.
 - Value-type instance methods with `ref self`.
 - Reference-type instance constructors.
 - Direct replacements and synchronous original-call continuations.
 - Multiple independently removable detours on one target.
-- Early removal and loader-owned cleanup.
+- Idempotent early removal, retryable removal failures, and loader-owned
+  cleanup.
+- Stable `InsiderHookException` wrapping runtime apply and removal failures.
 
 It deliberately rejects or does not expose:
 
 - Abstract methods.
 - Open generic methods.
+- Multicast replacement delegates.
 - Variable-argument methods.
 - Static constructors and value-type constructors.
 - IL rewriting, HookGen, ordering controls, and native detours.

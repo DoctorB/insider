@@ -78,13 +78,17 @@ instance-constructor detours from a `MethodBase` and replacement `Delegate`;
 construction applies the detour immediately and disposal removes it.
 Replacements use exact signatures, preserve declared by-reference parameters,
 include `self` for reference-type instance members and `ref self` for value-type
-instance methods, and may prepend an original-call delegate to wrap existing
-behavior. Virtual base methods and overrides are separate reflected
-implementations and separate hook targets. Constructors use `void` signatures.
-Multiple detours can form a continuation chain, but every handle remains
-independently owned and removable. MonoMod types, static and value-type
-constructors, IL hooks, HookGen, detour ordering, and native detours are not
-exposed by the initial contract.
+instance methods, preserve managed by-reference returns, and may prepend an
+original-call delegate to wrap existing behavior. Fully constructed generic
+methods are concrete targets; open generic definitions are rejected. Virtual
+base methods and overrides are separate reflected implementations and separate
+hook targets. Constructors use `void` signatures. Multiple detours can form a
+continuation chain, but every handle remains independently owned and removable.
+The backend wraps application and removal failures in `InsiderHookException`;
+successful disposal is idempotent, while failed disposal keeps the handle
+tracked and retryable. MonoMod types, static and value-type constructors, IL
+hooks, HookGen, detour ordering, and native detours are not exposed by the
+initial contract.
 
 The public signature and lifecycle rules are documented with working patterns
 in the [managed hooking guide](hooking.md).
@@ -108,6 +112,8 @@ backend.
   filesystem or reflection order.
 - Every detour created through a plugin context belongs to that plugin and must
   be removed even when plugin load or unload fails.
+- A failed removal must remain observable and retryable; it must not be marked
+  complete or silently dropped from plugin ownership.
 - Removing or rolling back one plugin's detours must leave other owners' nodes
   in the same target chain intact.
 - A hook must target the assembly instance used by Unity; late game assemblies
