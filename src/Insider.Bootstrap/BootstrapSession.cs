@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Insider.Hooking;
 using Insider.Loader;
 
 namespace Insider.Bootstrap;
@@ -58,7 +59,12 @@ internal sealed class BootstrapSession : IDisposable
                     failedPluginCount: 0);
             }
 
-            var context = new BootstrapContext(normalizedGameDirectory, insiderDirectory, logger, runtime);
+            var context = new BootstrapContext(
+                normalizedGameDirectory,
+                insiderDirectory,
+                logger,
+                runtime,
+                new RuntimeDetourHookService());
             _pluginHost = new PluginHost(context);
 
             var results = _pluginHost.LoadDirectory(pluginDirectory);

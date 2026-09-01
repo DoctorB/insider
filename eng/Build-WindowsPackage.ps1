@@ -38,6 +38,22 @@ $coreFiles = @(
     "Insider.Bootstrap.dll"
 )
 
+$hookingFiles = @(
+    "Insider.Hooking.dll",
+    "Mono.Cecil.dll",
+    "Mono.Cecil.Mdb.dll",
+    "Mono.Cecil.Pdb.dll",
+    "Mono.Cecil.Rocks.dll",
+    "MonoMod.Backports.dll",
+    "MonoMod.Core.dll",
+    "MonoMod.Iced.dll",
+    "MonoMod.ILHelpers.dll",
+    "MonoMod.RuntimeDetour.dll",
+    "MonoMod.Utils.dll",
+    "System.Reflection.Emit.ILGeneration.dll",
+    "System.Reflection.Emit.Lightweight.dll"
+)
+
 if (Test-Path -LiteralPath $outputPath) {
     Remove-Item -LiteralPath $outputPath -Recurse -Force
 }
@@ -53,6 +69,16 @@ foreach ($file in $coreFiles) {
     $source = Join-Path $repositoryRoot "src/$($file.Replace('.dll', ''))/bin/$Configuration/netstandard2.0/$file"
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
         throw "Managed core file not found: '$source'. Build the solution first."
+    }
+
+    Copy-Item -LiteralPath $source -Destination (Join-Path $bundleCore $file)
+}
+
+$hookingOutput = Join-Path $repositoryRoot "src/Insider.Hooking/bin/$Configuration/netstandard2.0"
+foreach ($file in $hookingFiles) {
+    $source = Join-Path $hookingOutput $file
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+        throw "Hooking runtime file not found: '$source'. Build the solution first."
     }
 
     Copy-Item -LiteralPath $source -Destination (Join-Path $bundleCore $file)

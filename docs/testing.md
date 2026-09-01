@@ -11,8 +11,12 @@ The executable suite in `tests/Insider.Tests` covers plugin discovery,
 metadata, duplicate identifiers, failure containment, reverse unload order,
 required and optional plugin dependency ordering, missing dependencies, cycles,
 failure propagation, numeric version validation, minimum-version enforcement,
-plugin-scoped logging, installation manifests, hash verification, and proxy
-backup restoration.
+plugin-scoped logging, managed detour application/removal, detour cleanup after
+unload or failed load, exact-signature rejection, `ref` and `out` parameter
+propagation, instance-method and instance-constructor detours with original
+calls, value-type instance methods with `ref self`, multi-detour chains,
+selective removal, cross-plugin ownership isolation, installation manifests,
+hash verification, and proxy backup restoration.
 
 ### Managed bootstrap integration fixture
 
@@ -56,15 +60,57 @@ packages.
 
 `eng/Test-WindowsPackage.ps1` verifies the assembled artifact before upload. It
 checks the native bootstrap, managed core, CLI runtime files and package README;
-requires license notices; rejects test assemblies and source files; and runs the
-packaged CLI help command.
+requires the complete hooking runtime and license notices; rejects test
+assemblies and source files; and runs the packaged CLI help command.
+
+### Real Unity Mono smoke test
+
+`eng/Test-UnityMonoSmoke.ps1` builds a minimal player with Unity `2022.3.62f2`,
+the Windows x64 target, and the Mono scripting backend. It then builds the
+Insider native and managed components, assembles a package, installs it into the
+generated player, copies a test plugin, and launches the player in batch mode.
+
+The test succeeds only when all of these observations are present:
+
+1. Unity starts and exits normally after the fixture delay;
+2. `version.dll` finds the real Unity Mono runtime;
+3. the managed bootstrap reports `UnityMono` and `x64`;
+4. MonoMod.RuntimeDetour changes the plugin's managed test method from `7` to
+   `42` inside the real Unity Mono runtime;
+5. a detour propagates mutations through `ref` and `out` parameters and its
+   original-call delegate;
+6. a second detour wraps an instance method, receives `self`, and calls its
+   original implementation before producing `42`;
+7. a value-type instance detour receives `ref self`, calls the original method,
+   produces `42`, and preserves the original mutation in the struct;
+8. the plugin observes Unity loading its effective `Assembly-CSharp` instance
+   and applies two detours to one static method without a compile-time game
+   reference;
+9. both continuations contribute to the chain and the player directly observes
+   `42` instead of the original `7`;
+10. the plugin disposes both game-hook handles while the player remains active;
+11. the player directly invokes the same method again and observes the restored
+   value `7`;
+12. the test plugin writes its load marker and scoped log messages;
+13. the other plugin-owned detours remain active through the plugin's
+    `Unload()` callback;
+14. the managed log contains no error entries;
+15. the installed files still pass the CLI status check.
+
+This test is local rather than part of GitHub Actions because it needs an
+installed and licensed Unity Editor. Its generated project state, package, and
+player stay below `artifacts/unity-mono-smoke` or ignored Unity directories.
 
 ## What the fixture does not prove
 
 The fake native runtime cannot execute managed IL or reproduce Unity's Mono
-fork. The managed fixture executes IL on the test host, but does not enter
-through the native proxy or validate Unity main-thread behavior. A real Windows
-x64 Unity/Mono player is still required before compatibility can move from
+fork. The real-player fixture covers one Unity release and a deliberately empty
+game, but it does not validate game-specific behavior, Unity main-thread APIs,
+hooks against UnityEngine or production game code, ordered chains or chains
+involving multiple real plugins, constructor hooks inside Unity, complex method
+signatures, value-type constructors, anti-cheat interaction, or other Unity/Mono
+versions. Broader
+real-player evidence is still required before compatibility can move from
 experimental to supported.
 
 ## Run locally
@@ -78,4 +124,11 @@ cmake --build artifacts/native-build --config Release
 ctest --test-dir artifacts/native-build --build-config Release --output-on-failure
 
 ./eng/Test-WindowsPackage.ps1 -PackageDirectory artifacts/Insider-windows-x64
+
+./eng/Test-UnityMonoSmoke.ps1
 ```
+
+The Unity smoke script defaults to the Unity Hub installation at
+`C:\Program Files\Unity\Hub\Editor\2022.3.62f2`. Pass `-UnityEditor` to use
+another executable. It locates CMake from `PATH` or the latest Visual Studio
+installation; `-CMake` can override that path when needed.

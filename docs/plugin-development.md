@@ -79,6 +79,100 @@ file. Insider automatically prefixes every plugin message with its declared ID:
 
 The prefix is added by the loader; plugins should not add it themselves.
 
+## Managed detours
+
+The hooking API applies a managed method or instance-constructor detour from a
+reflected `MethodBase` and a compatible replacement delegate. This
+instance-method example preserves the original behavior and changes its result:
+
+The complete signature reference, lifecycle rules, chain behavior, Unity
+assembly-loading pattern, and examples are maintained in
+[hooking.md](hooking.md).
+
+```csharp
+using System;
+using System.Reflection;
+
+private delegate int ComputeOriginal(TargetType self, int value);
+private delegate int ComputeHook(
+    ComputeOriginal original,
+    TargetType self,
+    int value);
+
+private IDisposable? _detour;
+
+public void Load(IInsiderContext context)
+{
+    var target = typeof(TargetType).GetMethod(
+        "Compute",
+        BindingFlags.Public | BindingFlags.Instance)
+        ?? throw new InvalidOperationException("Target method not found.");
+
+    _detour = context.Hooks.Detour(target, (ComputeHook)Replacement);
+}
+
+private static int Replacement(
+    ComputeOriginal original,
+    TargetType self,
+    int value)
+{
+    return original(self, value) * 2;
+}
+```
+
+The detour is active as soon as `Detour` returns. Dispose the returned handle to
+remove it early. Insider also owns every handle created through a plugin context
+and removes remaining detours after that plugin's `Unload()` callback or after a
+failed `Load()`.
+
+Signatures are exact. A direct replacement receives the target arguments. An
+instance-method or constructor replacement receives the declaring type as
+`self` before those arguments. Constructors use a `void` replacement and
+original-call delegate. Declared `ref` and `out` parameters remain by reference
+in both delegate signatures. To call the original behavior, prepend a delegate
+with that same return type and parameter list, as in the example above. Call
+this delegate only synchronously while the replacement is executing; do not
+store it.
+
+Value-type instance methods use `ref self`; both the replacement and its
+original-call delegate must declare it exactly:
+
+```csharp
+private delegate int ApplyOriginal(ref TargetStruct self, int value);
+private delegate int ApplyHook(
+    ApplyOriginal original,
+    ref TargetStruct self,
+    int value);
+
+private static int Replacement(
+    ApplyOriginal original,
+    ref TargetStruct self,
+    int value)
+{
+    return original(ref self, value) * 2;
+}
+```
+
+Passing the struct by value is rejected because mutations would target a copy.
+
+If more than one detour targets the same method, that delegate advances to the
+next detour and eventually the original method. Insider does not define
+inter-plugin detour order yet. Disposing one handle removes only that detour;
+cleanup after a failed plugin load does not remove detours owned by other
+plugins.
+
+Hook the `MethodInfo` or `ConstructorInfo` from the assembly instance Unity
+actually uses. Game assemblies such as `Assembly-CSharp` may load after Insider
+plugins. Do not force an early private copy with `Assembly.Load`; observe
+`AppDomain.AssemblyLoad`, install the detour when the requested assembly
+arrives, and unsubscribe during `Unload()`. Detours created through the saved
+plugin context remain loader-owned.
+
+Abstract methods, open generic methods, variable-argument methods, static
+constructors, and value-type constructors are rejected. IL rewriting, HookGen,
+ordering controls, and native hooks remain outside the Insider contract even
+when the underlying backend offers related features.
+
 ## Installation layout
 
 Place plugin entry assemblies directly in `Insider/plugins`. Put their managed
@@ -119,8 +213,10 @@ name is rejected; Insider cannot replace it safely.
 Unity Mono uses a shared application domain. `Unload()` is a lifecycle callback,
 not assembly unloading: managed assemblies remain resident until the game exits.
 Plugin authors should therefore coordinate on common dependency versions and
-avoid modifying global state they cannot restore. Insider reads managed images
-into memory and does not intentionally keep the source DLL files open.
+avoid modifying global state they cannot restore. Insider removes context-owned
+detours, but it cannot undo changes made through third-party hooking APIs.
+Insider reads managed images into memory and does not intentionally keep the
+source DLL files open.
 
 ## Bootstrap timing
 

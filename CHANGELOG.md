@@ -32,3 +32,34 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   logger.
 - CI verification of required Windows package files and license notices,
   test/source exclusions, and the packaged CLI entry point.
+- Local Unity 2022.3 Windows x64 Mono smoke player covering the complete native
+  bootstrap, managed loader, plugin load/unload, diagnostics, and installer
+  status path.
+- Minimal `IInsiderHookService` API and a MonoMod.RuntimeDetour 25.3.6 backend
+  for direct managed method detours.
+- Plugin-owned detour cleanup after normal unload and failed plugin activation,
+  plus managed and real Unity Mono hook fixtures.
+- Plugin-scoped assembly resolution that leaves core hooking dependencies to the
+  host without false missing-dependency errors.
+- Exact hook-signature validation plus reference-type instance detours and
+  synchronous original-method continuations, verified in managed and Unity Mono
+  fixtures.
+- Real Unity Mono coverage for a plugin that waits for Unity's effective
+  `Assembly-CSharp` instance and detours a method invoked directly by the player.
+- Multi-detour chain coverage with selective removal and failed-plugin cleanup
+  that preserves hooks owned by other plugins, plus a two-node Unity game hook.
+- Instance-constructor detours through the same minimal `MethodBase` API,
+  including exact `void` signatures, `self`, synchronous original calls, and
+  deterministic removal coverage.
+- Real Unity Mono coverage that disposes a two-node game hook chain while the
+  player remains active and verifies the direct call changes from `42` back to
+  the original `7`.
+- Value-type instance method detours with exact `ref self` signatures and
+  original-call continuations, verified in managed tests and a real Unity Mono
+  player.
+- A canonical managed hooking guide with complete signature mappings, lifecycle
+  rules, Unity assembly-loading guidance, and examples for every supported
+  detour form.
+- Explicit `ref` and `out` parameter support with readable by-reference
+  diagnostics, managed mutation/restoration tests, and real Unity Mono
+  coverage.

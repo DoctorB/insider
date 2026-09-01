@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Insider.Abstractions/Insider.Abstractions.csproj" />
+    <ProjectReference Include="../Insider.Hooking/Insider.Hooking.csproj" />
     <ProjectReference Include="../Insider.Loader/Insider.Loader.csproj" />
   </ItemGroup>
 </Project>

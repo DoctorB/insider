@@ -42,7 +42,7 @@ internal static class UnityGameInspector
         var architecture = PortableExecutableInspector.GetArchitecture(fullPath);
         var isCurrentTarget = isUnity && backend == UnityScriptingBackend.Mono && architecture == "x64";
         var note = isCurrentTarget
-            ? "Matches the first implementation target; end-to-end support is not validated yet."
+            ? "Matches the experimental Windows x64 Unity/Mono target; validate this specific game before use."
             : "Detection is diagnostic only. This configuration is outside the current implementation target.";
 
         return new UnityGameInspection(fullPath, dataDirectory, isUnity, backend, architecture, isCurrentTarget, note);

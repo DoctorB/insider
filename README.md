@@ -18,6 +18,8 @@ The first implementation target is intentionally narrow:
 - Windows x64
 - Managed plugins loaded from `Insider/plugins`
 - A loader-owned plugin lifecycle and diagnostics
+- Managed method and instance-constructor detours backed by MonoMod.RuntimeDetour,
+  including `ref`/`out` parameters and `ref self` for value-type instance methods
 
 IL2CPP and additional operating systems are planned as separate runtime
 backends. They are not supported yet.
@@ -43,17 +45,19 @@ See [docs/architecture.md](docs/architecture.md) for the component boundaries
 and [docs/compatibility.md](docs/compatibility.md) for the support policy. The
 [testing strategy](docs/testing.md) explains what is automated without a game
 fixture and what still requires a real Unity player. Plugin authors should start
-with the [plugin development guide](docs/plugin-development.md).
+with the [plugin development guide](docs/plugin-development.md) and use the
+[managed hooking guide](docs/hooking.md) for signatures, lifecycle rules, and
+complete examples.
 
 ## Repository layout
 
 ```text
-src/       Maintained loader, SDK, bootstrap, and tooling
+src/       Maintained loader, SDK, bootstrap, hooking backend, and tooling
 native/    Insider-owned Windows process bootstrap
-tests/     Dependency-free executable test suite
+tests/     Managed, native, and real-player fixtures
 samples/   Example plugins
 legacy/    Archived Insider v1 source; never shipped or built
-docs/      Architecture, compatibility, and design decisions
+docs/      Architecture, compatibility, usage guides, and design decisions
 ```
 
 ## Install a CI build
@@ -104,6 +108,23 @@ Run the same check locally with:
 ./eng/Test-WindowsPackage.ps1 -PackageDirectory artifacts/Insider-windows-x64
 ```
 
+A local smoke fixture builds and launches a real Unity 2022.3 Windows x64
+player using the Mono scripting backend. It installs Insider, loads a test
+plugin, applies managed detours including one against the player's
+`Assembly-CSharp`, removes a two-node hook chain while the player is still
+running, verifies the original result is restored, checks native and managed
+diagnostics, and checks plugin unload on process exit:
+
+```powershell
+./eng/Test-UnityMonoSmoke.ps1
+```
+
+The script uses Unity `2022.3.62f2` from its default Unity Hub location unless
+`-UnityEditor` is supplied. Generated player files remain under
+`artifacts/unity-mono-smoke` and are not committed. This single fixture keeps
+the backend experimental; it is evidence for one controlled player, not a
+general Unity compatibility claim.
+
 ## Plugin model
 
 Plugins implement `IInsiderPlugin` and declare metadata with
@@ -136,8 +157,20 @@ plugin is activated:
 Versions deliberately use only `MAJOR.MINOR.PATCH`, and dependencies support one
 simple constraint: an optional minimum version.
 
-The API is deliberately small while the runtime and hook lifecycle are proven
-against real Unity players.
+The initial hooking API is deliberately small. Plugins can apply a managed
+method or instance-constructor detour through
+`context.Hooks.Detour(target, replacement)`. The returned
+handle removes it early when disposed; Insider also removes every remaining
+plugin-owned detour automatically after `Unload()` or a failed `Load()`. A
+replacement may accept an original-call delegate first, allowing it to wrap
+rather than completely replace game behavior. Multiple detours may share a
+target; each returned handle removes only its own detour, while inter-plugin
+execution order remains intentionally unspecified. Reference-type instance
+methods receive `self`; value-type instance methods receive `ref self` so their
+mutations affect the original struct. Declared `ref` and `out` parameters flow
+through replacements and original calls. The
+[managed hooking guide](docs/hooking.md) documents every supported signature
+with examples.
 
 Messages written through `context.Logger` are automatically prefixed with the
 plugin ID, keeping the shared game log readable without extra logging APIs.

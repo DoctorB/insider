@@ -1,0 +1,9 @@
+/Library/
+/Logs/
+/Obj/
+/Temp/
+/UserSettings/
+/Packages/packages-lock.json
+/ProjectSettings/*
+!/ProjectSettings/ProjectVersion.txt
+/Assets/__InsiderUnityMonoSmoke.unity*

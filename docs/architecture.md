@@ -17,9 +17,9 @@ Unity executable
 
 ### Insider.Abstractions
 
-The public plugin contract. It contains metadata, lifecycle, logging, and runtime
-information interfaces. It has no dependency on Unity, a mod loader, or a native
-bootstrap.
+The public plugin contract. It contains metadata, lifecycle, logging, runtime
+information, and the minimal managed-detour service interface. It has no
+dependency on Unity, a mod loader, a native bootstrap, or MonoMod types.
 
 ### Insider.Loader
 
@@ -43,7 +43,9 @@ Dependencies may specify one minimum version; arbitrary ranges are outside the
 initial loader contract.
 
 Each activated plugin receives a thin context wrapper whose logger prefixes
-messages with the plugin ID. All other context values are delegated unchanged.
+messages with the plugin ID and whose hooking service tracks that plugin's
+detours. Remaining detours are removed in reverse creation order after
+`Unload()`, including cleanup after a failed `Load()`.
 
 ### Insider.Bootstrap
 
@@ -68,11 +70,25 @@ Insider. Installations are described by a manifest containing SHA-256 hashes.
 An existing root `version.dll` is preserved and restored; unknown core files are
 never overwritten.
 
-### Runtime hooking backend
+### Insider.Hooking
 
-Not implemented yet. The first spike will target Unity Mono through
-MonoMod.RuntimeDetour. The old v1 memory patcher is archived and must not be used
-as the production backend.
+The first runtime backend implements `IInsiderHookService` through
+MonoMod.RuntimeDetour. The public surface creates direct managed method and
+instance-constructor detours from a `MethodBase` and replacement `Delegate`;
+construction applies the detour immediately and disposal removes it.
+Replacements use exact signatures, preserve declared by-reference parameters,
+include `self` for reference-type instance members and `ref self` for value-type
+instance methods, and may prepend an original-call delegate to wrap existing
+behavior. Constructors use `void` signatures. Multiple detours can form a
+continuation chain, but every handle remains independently owned and removable.
+MonoMod types, static and value-type constructors, IL hooks, HookGen, detour
+ordering, and native detours are not exposed by the initial contract.
+
+The public signature and lifecycle rules are documented with working patterns
+in the [managed hooking guide](hooking.md).
+
+The old v1 memory patcher remains archived and is not used by the production
+backend.
 
 ## Design rules
 
@@ -84,8 +100,16 @@ as the production backend.
 - A plugin failure must be logged with plugin identity and stage.
 - Dependency resolution must be deterministic; ambiguous assembly identities
   fail closed before plugin discovery.
+- The plugin resolver handles requests originating from catalogued plugin
+  assemblies only; core and runtime dependencies remain the host's concern.
 - Plugin activation must follow declared required dependencies, never incidental
   filesystem or reflection order.
+- Every detour created through a plugin context belongs to that plugin and must
+  be removed even when plugin load or unload fails.
+- Removing or rolling back one plugin's detours must leave other owners' nodes
+  in the same target chain intact.
+- A hook must target the assembly instance used by Unity; late game assemblies
+  are observed when loaded rather than forced into the application domain.
 - Third-party binaries require recorded versions, hashes, sources, and licenses.
 
 ## Security boundary
@@ -98,5 +122,14 @@ The loader validates metadata and lifecycle, not plugin intent.
 The native fixture provides an Insider-owned module with the same seven Mono
 embedding exports consumed by the bootstrap. Managed fixtures separately cover
 real assembly discovery, exact dependency resolution, missing dependencies, and
-version conflicts. These are deterministic contract tests, not evidence that a
-specific Unity version or game is supported. See [testing.md](testing.md).
+version conflicts. These deterministic contract tests run in CI.
+
+A separate local fixture builds a real Unity 2022.3 Windows x64 Mono player and
+proves that the native proxy can enter the existing Mono domain, start the
+managed loader, load one plugin, apply a managed method detour, and unload the
+plugin during process exit. The plugin also waits for Unity's real
+`Assembly-CSharp` instance and detours a method that the player invokes
+directly. The fixture also removes both detour nodes while the player remains
+active and verifies that a later direct call returns the original result. It
+closes the basic integration gap without turning one Unity version into a broad
+support claim. See [testing.md](testing.md).
