@@ -83,10 +83,14 @@ The test succeeds only when all of these observations are present:
    reference;
 7. both continuations contribute to the chain and the player directly observes
    `42` instead of the original `7`;
-8. the test plugin writes its load marker and scoped log messages;
-9. plugin-owned detours remain active through the plugin's `Unload()` callback;
-10. the managed log contains no error entries;
-11. the installed files still pass the CLI status check.
+8. the plugin disposes both game-hook handles while the player remains active;
+9. the player directly invokes the same method again and observes the restored
+   value `7`;
+10. the test plugin writes its load marker and scoped log messages;
+11. the other plugin-owned detours remain active through the plugin's
+    `Unload()` callback;
+12. the managed log contains no error entries;
+13. the installed files still pass the CLI status check.
 
 This test is local rather than part of GitHub Actions because it needs an
 installed and licensed Unity Editor. Its generated project state, package, and

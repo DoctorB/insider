@@ -51,3 +51,6 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Instance-constructor detours through the same minimal `MethodBase` API,
   including exact `void` signatures, `self`, synchronous original calls, and
   deterministic removal coverage.
+- Real Unity Mono coverage that disposes a two-node game hook chain while the
+  player remains active and verifies the direct call changes from `42` back to
+  the original `7`.

@@ -6,7 +6,8 @@ namespace Insider.UnityMonoSmoke
 {
     public sealed class SmokePlayer : MonoBehaviour
     {
-        private const float ExitDelaySeconds = 8.0f;
+        private const float RestoreDelaySeconds = 4.0f;
+        private const float ExitDelaySeconds = 4.0f;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Initialize()
@@ -27,6 +28,10 @@ namespace Insider.UnityMonoSmoke
         {
             var gameHookedValue = CalculateHookValue(2);
             Debug.Log($"INSIDER_UNITY_MONO_SMOKE_GAME_HOOKED_VALUE={gameHookedValue}");
+
+            yield return new WaitForSecondsRealtime(RestoreDelaySeconds);
+            var gameRestoredValue = CalculateHookValue(2);
+            Debug.Log($"INSIDER_UNITY_MONO_SMOKE_GAME_RESTORED_VALUE={gameRestoredValue}");
 
             yield return new WaitForSecondsRealtime(ExitDelaySeconds);
             Debug.Log("INSIDER_UNITY_MONO_SMOKE_PLAYER_EXITING");

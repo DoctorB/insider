@@ -125,5 +125,7 @@ proves that the native proxy can enter the existing Mono domain, start the
 managed loader, load one plugin, apply a managed method detour, and unload the
 plugin during process exit. The plugin also waits for Unity's real
 `Assembly-CSharp` instance and detours a method that the player invokes
-directly. It closes the basic integration gap without turning one Unity version
-into a broad support claim. See [testing.md](testing.md).
+directly. The fixture also removes both detour nodes while the player remains
+active and verifies that a later direct call returns the original result. It
+closes the basic integration gap without turning one Unity version into a broad
+support claim. See [testing.md](testing.md).

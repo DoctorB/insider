@@ -222,6 +222,7 @@ $insiderDirectory = Join-Path $playerDirectory "Insider"
 Require-Text (Join-Path $insiderDirectory "logs/native.log") "Managed bootstrap started successfully."
 $managedLog = Join-Path $insiderDirectory "logs/insider.log"
 Require-Text $managedLog "INSIDER_UNITY_MONO_SMOKE_PLUGIN_LOADED"
+Require-Text $managedLog "INSIDER_UNITY_MONO_SMOKE_GAME_HOOKS_REMOVED"
 Reject-Text $managedLog "[Error]"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "Backend=UnityMono"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "HookedValue=42"
@@ -229,10 +230,14 @@ Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "Inst
 Require-Text (Join-Path $insiderDirectory "unity-smoke-game-hooked.txt") "GameHookAssembly=Assembly-CSharp"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-game-hooked.txt") "GameHookCount=2"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-game-hooked.txt") "GameHookedValue=42"
+Require-Text (Join-Path $insiderDirectory "unity-smoke-game-hooks-removed.txt") "GameHookAssembly=Assembly-CSharp"
+Require-Text (Join-Path $insiderDirectory "unity-smoke-game-hooks-removed.txt") "GameHookCount=0"
+Require-Text (Join-Path $insiderDirectory "unity-smoke-game-hooks-removed.txt") "GameRestoredValue=7"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "HookedValue=42"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "InstanceHookedValue=42"
 Require-Text $playerLog "INSIDER_UNITY_MONO_SMOKE_PLAYER_STARTED"
 Require-Text $playerLog "INSIDER_UNITY_MONO_SMOKE_GAME_HOOKED_VALUE=42"
+Require-Text $playerLog "INSIDER_UNITY_MONO_SMOKE_GAME_RESTORED_VALUE=7"
 
 Invoke-CheckedProcess "dotnet" @($packagedCli, "status", $playerExecutable) 60
 

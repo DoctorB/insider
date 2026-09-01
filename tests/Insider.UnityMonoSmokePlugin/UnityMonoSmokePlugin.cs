@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using Insider;
 
 namespace Insider.UnityMonoSmokePlugin;
@@ -11,12 +12,16 @@ namespace Insider.UnityMonoSmokePlugin;
 public sealed class UnityMonoSmokePlugin : IInsiderPlugin
 {
     public const string Marker = "INSIDER_UNITY_MONO_SMOKE_PLUGIN_LOADED";
+    private const int GameHookRemovalDelayMilliseconds = 2000;
 
     private string? _insiderDirectory;
     private readonly int _baseValue = 5;
     private readonly object _gameHookSync = new object();
     private readonly List<Assembly> _hookedGameAssemblies = new List<Assembly>();
+    private readonly List<IDisposable> _gameHookHandles = new List<IDisposable>();
+    private readonly List<MethodInfo> _gameHookTargets = new List<MethodInfo>();
     private IInsiderContext? _context;
+    private Timer? _gameHookRemovalTimer;
 
     public void Load(IInsiderContext context)
     {
@@ -65,6 +70,11 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
     public void Unload()
     {
         AppDomain.CurrentDomain.AssemblyLoad -= OnAssemblyLoad;
+        lock (_gameHookSync)
+        {
+            _gameHookRemovalTimer?.Dispose();
+            _gameHookRemovalTimer = null;
+        }
 
         if (_insiderDirectory is null)
         {
@@ -152,22 +162,93 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
                 "CalculateHookValue",
                 BindingFlags.Public | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Unity smoke game hook target was not found.");
-            _ = context.Hooks.Detour(gameTarget, (GameReplacement)FirstGameHookReplacement);
-            _ = context.Hooks.Detour(gameTarget, (GameReplacement)SecondGameHookReplacement);
-
-            var gameHookedValue = gameTarget.Invoke(null, new object[] { 2 });
-            if (!Equals(gameHookedValue, 42))
+            var firstHook = context.Hooks.Detour(gameTarget, (GameReplacement)FirstGameHookReplacement);
+            IDisposable? secondHook = null;
+            try
             {
-                throw new InvalidOperationException($"Unity smoke game detour returned {gameHookedValue}; expected 42.");
+                secondHook = context.Hooks.Detour(gameTarget, (GameReplacement)SecondGameHookReplacement);
+
+                var gameHookedValue = gameTarget.Invoke(null, new object[] { 2 });
+                if (!Equals(gameHookedValue, 42))
+                {
+                    throw new InvalidOperationException($"Unity smoke game detour returned {gameHookedValue}; expected 42.");
+                }
+
+                _gameHookHandles.Add(firstHook);
+                _gameHookHandles.Add(secondHook);
+                _gameHookTargets.Add(gameTarget);
+                _hookedGameAssemblies.Add(assembly);
+                File.AppendAllText(
+                    Path.Combine(context.InsiderDirectory, "unity-smoke-game-hooked.txt"),
+                    $"GameHookAssembly={assembly.GetName().Name}{Environment.NewLine}" +
+                    $"GameHookCount=2{Environment.NewLine}" +
+                    $"GameHookedValue={gameHookedValue}{Environment.NewLine}");
+                context.Logger.Info("INSIDER_UNITY_MONO_SMOKE_GAME_HOOK_INSTALLED");
+
+                if (_gameHookRemovalTimer is null)
+                {
+                    _gameHookRemovalTimer = new Timer(RemoveGameHooks, null, GameHookRemovalDelayMilliseconds, Timeout.Infinite);
+                }
+                else
+                {
+                    _gameHookRemovalTimer.Change(GameHookRemovalDelayMilliseconds, Timeout.Infinite);
+                }
+            }
+            catch
+            {
+                secondHook?.Dispose();
+                firstHook.Dispose();
+                throw;
+            }
+        }
+    }
+
+    private void RemoveGameHooks(object? state)
+    {
+        try
+        {
+            IDisposable[] handles;
+            MethodInfo[] targets;
+            Timer? timer;
+            lock (_gameHookSync)
+            {
+                handles = _gameHookHandles.ToArray();
+                targets = _gameHookTargets.ToArray();
+                _gameHookHandles.Clear();
+                _gameHookTargets.Clear();
+                timer = _gameHookRemovalTimer;
+                _gameHookRemovalTimer = null;
             }
 
-            _hookedGameAssemblies.Add(assembly);
-            File.AppendAllText(
-                Path.Combine(context.InsiderDirectory, "unity-smoke-game-hooked.txt"),
-                $"GameHookAssembly={assembly.GetName().Name}{Environment.NewLine}" +
-                $"GameHookCount=2{Environment.NewLine}" +
-                $"GameHookedValue={gameHookedValue}{Environment.NewLine}");
-            context.Logger.Info("INSIDER_UNITY_MONO_SMOKE_GAME_HOOK_INSTALLED");
+            timer?.Dispose();
+            for (var index = handles.Length - 1; index >= 0; index--)
+            {
+                handles[index].Dispose();
+            }
+
+            var context = _context
+                ?? throw new InvalidOperationException("Unity smoke plugin context is unavailable.");
+            foreach (var target in targets)
+            {
+                var restoredValue = target.Invoke(null, new object[] { 2 });
+                if (!Equals(restoredValue, 7))
+                {
+                    throw new InvalidOperationException(
+                        $"Unity smoke game hook removal returned {restoredValue}; expected 7.");
+                }
+
+                File.AppendAllText(
+                    Path.Combine(context.InsiderDirectory, "unity-smoke-game-hooks-removed.txt"),
+                    $"GameHookAssembly={target.DeclaringType?.Assembly.GetName().Name}{Environment.NewLine}" +
+                    $"GameHookCount=0{Environment.NewLine}" +
+                    $"GameRestoredValue={restoredValue}{Environment.NewLine}");
+            }
+
+            context.Logger.Info("INSIDER_UNITY_MONO_SMOKE_GAME_HOOKS_REMOVED");
+        }
+        catch (Exception exception)
+        {
+            _context?.Logger.Error("Could not remove the Unity smoke game hooks.", exception);
         }
     }
 

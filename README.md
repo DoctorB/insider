@@ -108,8 +108,9 @@ Run the same check locally with:
 A local smoke fixture builds and launches a real Unity 2022.3 Windows x64
 player using the Mono scripting backend. It installs Insider, loads a test
 plugin, applies managed detours including one against the player's
-`Assembly-CSharp`, verifies native and managed diagnostics, and checks plugin
-unload on process exit:
+`Assembly-CSharp`, removes a two-node hook chain while the player is still
+running, verifies the original result is restored, checks native and managed
+diagnostics, and checks plugin unload on process exit:
 
 ```powershell
 ./eng/Test-UnityMonoSmoke.ps1
