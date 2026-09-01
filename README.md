@@ -114,9 +114,10 @@ Run the same check locally with:
 A local smoke fixture builds and launches a real Unity 2022.3 Windows x64
 player using the Mono scripting backend. It installs Insider, loads a test
 plugin, applies managed detours including one against the player's
-`Assembly-CSharp`, removes a two-node hook chain while the player is still
-running, verifies the original result is restored, checks native and managed
-diagnostics, and checks plugin unload on process exit:
+`Assembly-CSharp`, rewrites a second game method through `ModifyIl`, removes the
+two-node detour chain and IL hook while the player is still running, verifies
+both original results are restored, checks native and managed diagnostics, and
+checks plugin unload on process exit:
 
 ```powershell
 ./eng/Test-UnityMonoSmoke.ps1
@@ -184,9 +185,11 @@ signatures, IL patterns, lifecycle, and examples.
 Messages written through `context.Logger` are automatically prefixed with the
 plugin ID, keeping the shared game log readable without extra logging APIs.
 
-Managed dependencies should be placed under `Insider/plugins/dependencies`.
-Insider resolves exact assembly identities from that tree and refuses ambiguous
-or conflicting versions. Unity Mono has one shared application domain, so two
+Managed plugin dependencies should be placed under
+`Insider/plugins/dependencies`; host-owned contracts and hooking dependencies
+are resolved from `Insider/core`. Insider resolves exact assembly identities
+from one catalog and refuses ambiguous or conflicting versions. Unity Mono has
+one shared application domain, so two
 plugins cannot safely carry different versions of an assembly with the same
 simple name. See the plugin development guide for the supported layout and
 diagnostics.

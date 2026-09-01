@@ -5,6 +5,8 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using Insider;
+using Mono.Cecil.Cil;
+using MonoMod.Cil;
 
 namespace Insider.UnityMonoSmokePlugin;
 
@@ -354,11 +356,16 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
                 "CalculateHookValue",
                 BindingFlags.Public | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Unity smoke game hook target was not found.");
-            var firstHook = context.Hooks.Detour(gameTarget, (GameReplacement)FirstGameHookReplacement);
-            IDisposable? secondHook = null;
+            var gameIlTarget = gameType.GetMethod(
+                "CalculateIlHookValue",
+                BindingFlags.Public | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Unity smoke game IL hook target was not found.");
+            var installedHandles = new List<IDisposable>();
             try
             {
-                secondHook = context.Hooks.Detour(gameTarget, (GameReplacement)SecondGameHookReplacement);
+                installedHandles.Add(context.Hooks.ModifyIl(gameIlTarget, RewriteGameIl));
+                installedHandles.Add(context.Hooks.Detour(gameTarget, (GameReplacement)FirstGameHookReplacement));
+                installedHandles.Add(context.Hooks.Detour(gameTarget, (GameReplacement)SecondGameHookReplacement));
 
                 var gameHookedValue = gameTarget.Invoke(null, new object[] { 2 });
                 if (!Equals(gameHookedValue, 42))
@@ -366,16 +373,26 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
                     throw new InvalidOperationException($"Unity smoke game detour returned {gameHookedValue}; expected 42.");
                 }
 
-                _gameHookHandles.Add(firstHook);
-                _gameHookHandles.Add(secondHook);
+                var gameIlHookedValue = gameIlTarget.Invoke(null, new object[] { 2 });
+                if (!Equals(gameIlHookedValue, 42))
+                {
+                    throw new InvalidOperationException($"Unity smoke game IL hook returned {gameIlHookedValue}; expected 42.");
+                }
+
+                _gameHookHandles.AddRange(installedHandles);
                 _gameHookTargets.Add(gameTarget);
+                _gameHookTargets.Add(gameIlTarget);
                 _hookedGameAssemblies.Add(assembly);
                 File.AppendAllText(
                     Path.Combine(context.InsiderDirectory, "unity-smoke-game-hooked.txt"),
                     $"GameHookAssembly={assembly.GetName().Name}{Environment.NewLine}" +
-                    $"GameHookCount=2{Environment.NewLine}" +
-                    $"GameHookedValue={gameHookedValue}{Environment.NewLine}");
+                    $"GameHookCount=3{Environment.NewLine}" +
+                    $"GameDetourCount=2{Environment.NewLine}" +
+                    $"GameIlHookCount=1{Environment.NewLine}" +
+                    $"GameHookedValue={gameHookedValue}{Environment.NewLine}" +
+                    $"GameIlHookedValue={gameIlHookedValue}{Environment.NewLine}");
                 context.Logger.Info("INSIDER_UNITY_MONO_SMOKE_GAME_HOOK_INSTALLED");
+                context.Logger.Info("INSIDER_UNITY_MONO_SMOKE_GAME_IL_HOOK_INSTALLED");
 
                 if (_gameHookRemovalTimer is null)
                 {
@@ -388,8 +405,11 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
             }
             catch
             {
-                secondHook?.Dispose();
-                firstHook.Dispose();
+                for (var index = installedHandles.Count - 1; index >= 0; index--)
+                {
+                    installedHandles[index].Dispose();
+                }
+
                 throw;
             }
         }
@@ -432,8 +452,17 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
                 File.AppendAllText(
                     Path.Combine(context.InsiderDirectory, "unity-smoke-game-hooks-removed.txt"),
                     $"GameHookAssembly={target.DeclaringType?.Assembly.GetName().Name}{Environment.NewLine}" +
+                    $"GameHookTarget={target.Name}{Environment.NewLine}" +
                     $"GameHookCount=0{Environment.NewLine}" +
                     $"GameRestoredValue={restoredValue}{Environment.NewLine}");
+
+                if (string.Equals(target.Name, "CalculateIlHookValue", StringComparison.Ordinal))
+                {
+                    File.AppendAllText(
+                        Path.Combine(context.InsiderDirectory, "unity-smoke-game-hooks-removed.txt"),
+                        $"GameIlHookCount=0{Environment.NewLine}" +
+                        $"GameIlRestoredValue={restoredValue}{Environment.NewLine}");
+                }
             }
 
             context.Logger.Info("INSIDER_UNITY_MONO_SMOKE_GAME_HOOKS_REMOVED");
@@ -490,6 +519,20 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
     private delegate int GameOriginal(int value);
 
     private delegate int GameReplacement(GameOriginal original, int value);
+
+    private static void RewriteGameIl(ILContext il)
+    {
+        var cursor = new ILCursor(il);
+        if (!cursor.TryGotoNext(
+            MoveType.Before,
+            instruction => instruction.MatchLdcI4(5)))
+        {
+            throw new InvalidOperationException("Unity smoke game IL pattern was not found.");
+        }
+
+        cursor.Remove();
+        cursor.Emit(OpCodes.Ldc_I4, 40);
+    }
 
     private class VirtualBaseHookTarget
     {

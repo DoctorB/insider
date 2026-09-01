@@ -4,10 +4,13 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Insider.Bootstrap;
 using Insider.Hooking;
 using Insider.Installation;
 using Insider.Loader;
+using Mono.Cecil.Cil;
+using MonoMod.Cil;
 
 namespace Insider.Tests;
 
@@ -39,6 +42,18 @@ internal static class Program
             ("preserves other plugin detours after failed load", PreservesOtherPluginDetoursAfterFailedLoad),
             ("retries a failed plugin detour removal", RetriesFailedPluginDetourRemoval),
             ("continues plugin detour cleanup after a removal failure", ContinuesPluginDetourCleanupAfterFailure),
+            ("applies and removes an IL hook", AppliesAndRemovesIlHook),
+            ("chains and selectively removes IL hooks", ChainsAndSelectivelyRemovesIlHooks),
+            ("combines an IL hook with a managed detour", CombinesIlHookWithManagedDetour),
+            ("rewrites a value-type constructor IL body", RewritesValueTypeConstructorIl),
+            ("rejects unsupported IL hook targets", RejectsUnsupportedIlHookTargets),
+            ("rejects multicast IL manipulators", RejectsMulticastIlManipulator),
+            ("wraps IL manipulator failures", WrapsIlManipulatorFailures),
+            ("removes plugin IL hooks during unload", RemovesPluginIlHooksDuringUnload),
+            ("removes plugin IL hooks after failed load", RemovesPluginIlHooksAfterFailedLoad),
+            ("preserves other plugin IL hooks after failed load", PreservesOtherPluginIlHooksAfterFailedLoad),
+            ("retries a failed plugin IL hook removal", RetriesFailedPluginIlHookRemoval),
+            ("continues plugin IL hook cleanup after a removal failure", ContinuesPluginIlHookCleanupAfterFailure),
             ("unloads plugins in reverse order", UnloadsInReverseOrder),
             ("loads required plugin dependencies first", LoadsRequiredPluginDependenciesFirst),
             ("loads present optional plugin dependencies first", LoadsPresentOptionalPluginDependenciesFirst),
@@ -50,6 +65,7 @@ internal static class Program
             ("contains failures across required plugin dependencies", ContainsRequiredPluginDependencyFailures),
             ("allows missing optional plugin dependencies", AllowsMissingOptionalPluginDependencies),
             ("fails closed on a missing plugin dependency", FailsClosedOnMissingPluginDependency),
+            ("resolves host dependencies from the Insider core", ResolvesHostDependencyFromCore),
             ("bootstraps a plugin directory end to end", BootstrapsPluginDirectoryEndToEnd),
             ("rejects conflicting plugin dependency versions", RejectsConflictingPluginDependencyVersions),
             ("fails closed on an unsupported managed runtime", FailsClosedOnUnsupportedManagedRuntime),
@@ -434,7 +450,7 @@ internal static class Program
 
         host.UnloadAll();
 
-        var detour = hooks.Detours.Single();
+        var detour = hooks.Hooks.Single();
         Assert(RetryingCleanupPlugin.ObservedFirstFailure, "Plugin did not observe the first removal failure.");
         Assert(detour.DisposeAttempts == 2, "Failed plugin detour removal was not retried by context cleanup.");
         Assert(detour.IsDisposed, "Retried plugin detour removal did not complete.");
@@ -451,12 +467,218 @@ internal static class Program
 
         host.UnloadAll();
 
-        Assert(hooks.Detours.Count == 2, "Unexpected number of tracked cleanup detours.");
-        Assert(hooks.Detours[1].DisposeAttempts == 1, "Failing detour was not attempted during cleanup.");
-        Assert(hooks.Detours[0].IsDisposed, "Cleanup stopped before removing the remaining detour.");
+        Assert(hooks.Hooks.Count == 2, "Unexpected number of tracked cleanup detours.");
+        Assert(hooks.Hooks[1].DisposeAttempts == 1, "Failing detour was not attempted during cleanup.");
+        Assert(hooks.Hooks[0].IsDisposed, "Cleanup stopped before removing the remaining detour.");
         Assert(
-            context.CapturedLogger.Messages.Any(message => message.Contains("detour cleanup failed", StringComparison.Ordinal)),
-            "Aggregate detour cleanup failure was not logged.");
+            context.CapturedLogger.Messages.Any(message => message.Contains("hook cleanup failed", StringComparison.Ordinal)),
+            "Aggregate hook cleanup failure was not logged.");
+    }
+
+    private static void AppliesAndRemovesIlHook()
+    {
+        var service = new RuntimeDetourHookService();
+        var target = GetRequiredMethod(typeof(ManagedHookTarget), nameof(ManagedHookTarget.Value));
+
+        Assert(ManagedHookTarget.Value() == 7, "IL hook target did not begin with its original value.");
+        using var handle = service.ModifyIl(target, ManagedIlHookTarget.ReplaceSevenWithFortyTwo);
+        Assert(ManagedHookTarget.Value() == 42, "IL hook did not rewrite the target method.");
+
+        handle.Dispose();
+        handle.Dispose();
+
+        Assert(ManagedHookTarget.Value() == 7, "Idempotent IL hook disposal did not restore the target method.");
+    }
+
+    private static void ChainsAndSelectivelyRemovesIlHooks()
+    {
+        var service = new RuntimeDetourHookService();
+        var target = GetRequiredMethod(typeof(ManagedHookTarget), nameof(ManagedHookTarget.Value));
+
+        using (service.ModifyIl(target, ManagedIlHookTarget.AddTenBeforeReturn))
+        {
+            Assert(ManagedHookTarget.Value() == 17, "The first IL hook did not modify the return value.");
+
+            using (service.ModifyIl(target, ManagedIlHookTarget.AddTwentyBeforeReturn))
+            {
+                Assert(ManagedHookTarget.Value() == 37, "IL hooks did not compose on one target.");
+            }
+
+            Assert(ManagedHookTarget.Value() == 17, "Removing one IL hook broke the remaining rewrite.");
+        }
+
+        Assert(ManagedHookTarget.Value() == 7, "Removing the IL hook chain did not restore the target.");
+    }
+
+    private static void CombinesIlHookWithManagedDetour()
+    {
+        var service = new RuntimeDetourHookService();
+        var target = GetRequiredMethod(typeof(ManagedHookTarget), nameof(ManagedHookTarget.Value));
+
+        using (service.ModifyIl(target, ManagedIlHookTarget.AddTenBeforeReturn))
+        {
+            using (service.Detour(target, (ManagedHookReplacement)ManagedHookTarget.AddTwenty))
+            {
+                Assert(ManagedHookTarget.Value() == 37, "Managed detour did not observe the IL-rewritten original body.");
+            }
+
+            Assert(ManagedHookTarget.Value() == 17, "Removing the detour also removed the IL hook.");
+        }
+
+        Assert(ManagedHookTarget.Value() == 7, "Combined hook cleanup did not restore the target.");
+    }
+
+    private static void RewritesValueTypeConstructorIl()
+    {
+        var service = new RuntimeDetourHookService();
+        var target = GetRequiredConstructor(typeof(ManagedIlValueTarget), typeof(int));
+
+        Assert(new ManagedIlValueTarget(2).Value == 2, "Value-type constructor target began with an unexpected value.");
+        using (service.ModifyIl(target, ManagedIlHookTarget.AddFiveBeforeFieldStore))
+        {
+            Assert(new ManagedIlValueTarget(2).Value == 7, "IL hook did not rewrite the value-type constructor.");
+        }
+
+        Assert(new ManagedIlValueTarget(2).Value == 2, "Removing the constructor IL hook did not restore its body.");
+    }
+
+    private static void RejectsUnsupportedIlHookTargets()
+    {
+        var service = new RuntimeDetourHookService();
+        var validTarget = GetRequiredMethod(typeof(ManagedHookTarget), nameof(ManagedHookTarget.Value));
+        var openGeneric = GetRequiredMethod(typeof(ManagedGenericHookTarget), nameof(ManagedGenericHookTarget.Echo));
+        var closedGeneric = openGeneric.MakeGenericMethod(typeof(int));
+        var genericTypeMember = GetRequiredMethod(
+            typeof(ManagedGenericTypeHookTarget<int>),
+            nameof(ManagedGenericTypeHookTarget<int>.Echo));
+        var abstractTarget = GetRequiredMethod(typeof(ManagedAbstractIlHookTarget), nameof(ManagedAbstractIlHookTarget.Value));
+        var externalTarget = GetRequiredMethod(typeof(ManagedUnsupportedIlHookTarget), nameof(ManagedUnsupportedIlHookTarget.External));
+        var varArgTarget = GetRequiredMethod(typeof(ManagedUnsupportedIlHookTarget), nameof(ManagedUnsupportedIlHookTarget.VarArg));
+        var staticConstructor = typeof(ManagedStaticConstructorHookTarget).TypeInitializer
+            ?? throw new InvalidOperationException("Static constructor IL hook target was not found.");
+
+        AssertThrows<ArgumentNullException>(() => service.ModifyIl(null!, ManagedIlHookTarget.NoOp));
+        AssertThrows<ArgumentNullException>(() => service.ModifyIl(validTarget, null!));
+        AssertThrows<ArgumentException>(() => service.ModifyIl(abstractTarget, ManagedIlHookTarget.NoOp));
+        AssertThrows<ArgumentException>(() => service.ModifyIl(openGeneric, ManagedIlHookTarget.NoOp));
+        AssertThrows<NotSupportedException>(() => service.ModifyIl(closedGeneric, ManagedIlHookTarget.NoOp));
+        AssertThrows<NotSupportedException>(() => service.ModifyIl(genericTypeMember, ManagedIlHookTarget.NoOp));
+        var externalException = AssertThrows<NotSupportedException>(
+            () => service.ModifyIl(externalTarget, ManagedIlHookTarget.NoOp));
+        AssertThrows<NotSupportedException>(() => service.ModifyIl(varArgTarget, ManagedIlHookTarget.NoOp));
+        AssertThrows<NotSupportedException>(() => service.ModifyIl(staticConstructor, ManagedIlHookTarget.NoOp));
+
+        Assert(
+            externalException.Message.Contains("does not have a managed IL body", StringComparison.Ordinal) &&
+            externalException.Message.Contains(nameof(ManagedUnsupportedIlHookTarget.External), StringComparison.Ordinal),
+            "Missing-body rejection did not identify the IL target and limitation.");
+        Assert(ManagedHookTarget.Value() == 7, "Rejected IL targets changed a valid method.");
+    }
+
+    private static void RejectsMulticastIlManipulator()
+    {
+        var service = new RuntimeDetourHookService();
+        var target = GetRequiredMethod(typeof(ManagedHookTarget), nameof(ManagedHookTarget.Value));
+        Action<ILContext> manipulator = ManagedIlHookTarget.AddTenBeforeReturn;
+        manipulator += ManagedIlHookTarget.AddTwentyBeforeReturn;
+
+        var exception = AssertThrows<ArgumentException>(() => service.ModifyIl(target, manipulator));
+        Assert(
+            exception.Message.Contains("exactly one invocation target", StringComparison.Ordinal),
+            "Multicast IL manipulator rejection did not explain the contract violation.");
+        Assert(ManagedHookTarget.Value() == 7, "Rejected multicast IL manipulator changed the target.");
+    }
+
+    private static void WrapsIlManipulatorFailures()
+    {
+        var service = new RuntimeDetourHookService();
+        var target = GetRequiredMethod(typeof(ManagedHookTarget), nameof(ManagedHookTarget.Value));
+
+        var exception = AssertThrows<InsiderHookException>(
+            () => service.ModifyIl(target, ManagedIlHookTarget.Fail));
+
+        Assert(
+            exception.Message.Contains("Could not apply IL hook", StringComparison.Ordinal) &&
+            exception.Message.Contains("ManagedHookTarget.Value", StringComparison.Ordinal) &&
+            exception.ToString().Contains("Expected IL manipulator failure", StringComparison.Ordinal),
+            "IL manipulator failure did not preserve stable target-aware diagnostics.");
+        Assert(ManagedHookTarget.Value() == 7, "Failed IL manipulation changed the target.");
+    }
+
+    private static void RemovesPluginIlHooksDuringUnload()
+    {
+        using var host = CreateHost(new RuntimeDetourHookService());
+
+        var result = host.Load(typeof(IlHookingPlugin));
+
+        Assert(result.Succeeded, result.Error ?? "IL-hooking plugin did not load.");
+        Assert(ManagedHookTarget.Value() == 17, "Plugin-owned IL hook was not applied.");
+
+        host.UnloadAll();
+
+        Assert(ManagedHookTarget.Value() == 7, "Plugin-owned IL hook remained after unload.");
+    }
+
+    private static void RemovesPluginIlHooksAfterFailedLoad()
+    {
+        using var host = CreateHost(new RuntimeDetourHookService());
+
+        var result = host.Load(typeof(FailingIlHookingPlugin));
+
+        Assert(!result.Succeeded, "Failing IL-hooking plugin was reported as loaded.");
+        Assert(ManagedHookTarget.Value() == 7, "Failed plugin load left its IL hook applied.");
+    }
+
+    private static void PreservesOtherPluginIlHooksAfterFailedLoad()
+    {
+        using var host = CreateHost(new RuntimeDetourHookService());
+
+        var loaded = host.Load(typeof(IlHookingPlugin));
+        Assert(loaded.Succeeded, loaded.Error ?? "IL-hooking plugin did not load.");
+        Assert(ManagedHookTarget.Value() == 17, "Existing plugin IL hook was not applied.");
+
+        var failed = host.Load(typeof(FailingIlChainPlugin));
+        Assert(!failed.Succeeded, "Failing IL chain plugin was reported as loaded.");
+        Assert(ManagedHookTarget.Value() == 17, "Failed plugin cleanup changed another plugin's IL hook.");
+
+        host.UnloadAll();
+        Assert(ManagedHookTarget.Value() == 7, "Unloading the remaining IL hook did not restore the target.");
+    }
+
+    private static void RetriesFailedPluginIlHookRemoval()
+    {
+        var hooks = new TrackingHookService(failuresBeforeSuccess: new[] { 1 });
+        using var host = CreateHost(hooks);
+
+        var result = host.Load(typeof(RetryingIlCleanupPlugin));
+        Assert(result.Succeeded, result.Error ?? "Retrying IL cleanup plugin did not load.");
+
+        host.UnloadAll();
+
+        var hook = hooks.Hooks.Single();
+        Assert(RetryingIlCleanupPlugin.ObservedFirstFailure, "Plugin did not observe the first IL removal failure.");
+        Assert(hook.Kind == "IL hook", "Tracking service did not record an IL hook.");
+        Assert(hook.DisposeAttempts == 2, "Failed plugin IL hook removal was not retried.");
+        Assert(hook.IsDisposed, "Retried plugin IL hook removal did not complete.");
+    }
+
+    private static void ContinuesPluginIlHookCleanupAfterFailure()
+    {
+        var hooks = new TrackingHookService(failuresBeforeSuccess: new[] { 0, int.MaxValue });
+        var context = new TestContext(hooks);
+        using var host = new PluginHost(context);
+
+        var result = host.Load(typeof(MultipleIlCleanupPlugin));
+        Assert(result.Succeeded, result.Error ?? "Multiple IL cleanup plugin did not load.");
+
+        host.UnloadAll();
+
+        Assert(hooks.Hooks.Count == 2, "Unexpected number of tracked IL cleanup hooks.");
+        Assert(hooks.Hooks[1].DisposeAttempts == 1, "Failing IL hook was not attempted during cleanup.");
+        Assert(hooks.Hooks[0].IsDisposed, "IL cleanup stopped before removing the remaining hook.");
+        Assert(
+            context.CapturedLogger.Messages.Any(message => message.Contains("hook cleanup failed", StringComparison.Ordinal)),
+            "Aggregate IL hook cleanup failure was not logged.");
     }
 
     private static void UnloadsInReverseOrder()
@@ -620,6 +842,23 @@ internal static class Program
         Assert(File.ReadAllText(result.LogPath).Contains("is not present under", StringComparison.Ordinal), "Missing dependency was not diagnosed.");
     }
 
+    private static void ResolvesHostDependencyFromCore()
+    {
+        using var fixture = BootstrapFixtureWorkspace.Create(withMonoRuntime: true);
+        fixture.InstallPluginFixture(includeDependency: false);
+        fixture.InstallDependencyInCore();
+
+        using var session = new BootstrapSession();
+        var result = session.Start(fixture.GameDirectory);
+
+        Assert(result.LoadedPluginCount == 1, "Plugin using a host dependency was not loaded.");
+        Assert(result.FailedPluginCount == 0, "Host dependency resolution unexpectedly failed.");
+        Assert(File.Exists(Path.Combine(result.InsiderDirectory, "fixture-loaded.txt")), "Plugin did not run with its host dependency.");
+        Assert(
+            File.ReadAllText(result.LogPath).Contains(fixture.CoreDirectory, StringComparison.OrdinalIgnoreCase),
+            "Host dependency resolution was not logged from the Insider core.");
+    }
+
     private static void RejectsConflictingPluginDependencyVersions()
     {
         using var fixture = BootstrapFixtureWorkspace.Create(withMonoRuntime: true);
@@ -723,6 +962,7 @@ internal static class Program
         OptionalNewerFoundationPlugin.LoadCount = 0;
         ManagedRefReturnHookTarget.Reset();
         RetryingCleanupPlugin.ObservedFirstFailure = false;
+        RetryingIlCleanupPlugin.ObservedFirstFailure = false;
         LifecycleEvents.Clear();
         PluginGraphEvents.Clear();
     }
@@ -773,6 +1013,8 @@ internal sealed class BootstrapFixtureWorkspace : IDisposable
 
     public string DependencyDirectory { get; }
 
+    public string CoreDirectory => Path.Combine(GameDirectory, "Insider", "core");
+
     public static BootstrapFixtureWorkspace Create(bool withMonoRuntime)
     {
         var root = Path.Combine(Path.GetTempPath(), "insider-bootstrap-tests", Guid.NewGuid().ToString("N"));
@@ -811,6 +1053,14 @@ internal sealed class BootstrapFixtureWorkspace : IDisposable
         File.Copy(
             GetFixturePath("dependencies", "v2", "Insider.DependencyFixture.dll"),
             Path.Combine(conflictDirectory, "Insider.DependencyFixture.dll"));
+    }
+
+    public void InstallDependencyInCore()
+    {
+        Directory.CreateDirectory(CoreDirectory);
+        File.Copy(
+            GetFixturePath("dependencies", "v1", "Insider.DependencyFixture.dll"),
+            Path.Combine(CoreDirectory, "Insider.DependencyFixture.dll"));
     }
 
     public void Dispose()
@@ -1211,10 +1461,15 @@ internal sealed class NoOpHookService : IInsiderHookService
 {
     public IDisposable Detour(MethodBase target, Delegate replacement)
     {
-        return new NoOpDetour();
+        return new NoOpHook();
     }
 
-    private sealed class NoOpDetour : IDisposable
+    public IDisposable ModifyIl(MethodBase target, Action<ILContext> manipulator)
+    {
+        return new NoOpHook();
+    }
+
+    private sealed class NoOpHook : IDisposable
     {
         public void Dispose()
         {
@@ -1231,28 +1486,41 @@ internal sealed class TrackingHookService : IInsiderHookService
         _failuresBeforeSuccess = new Queue<int>(failuresBeforeSuccess);
     }
 
-    public List<TrackingDetour> Detours { get; } = new List<TrackingDetour>();
+    public List<TrackingHook> Hooks { get; } = new List<TrackingHook>();
 
     public IDisposable Detour(MethodBase target, Delegate replacement)
     {
-        if (_failuresBeforeSuccess.Count == 0)
-        {
-            throw new InvalidOperationException("No tracking detour behavior was configured.");
-        }
-
-        var detour = new TrackingDetour(_failuresBeforeSuccess.Dequeue());
-        Detours.Add(detour);
-        return detour;
+        return Track("managed detour");
     }
 
-    internal sealed class TrackingDetour : IDisposable
+    public IDisposable ModifyIl(MethodBase target, Action<ILContext> manipulator)
+    {
+        return Track("IL hook");
+    }
+
+    private IDisposable Track(string kind)
+    {
+        if (_failuresBeforeSuccess.Count == 0)
+        {
+            throw new InvalidOperationException("No tracking hook behavior was configured.");
+        }
+
+        var hook = new TrackingHook(kind, _failuresBeforeSuccess.Dequeue());
+        Hooks.Add(hook);
+        return hook;
+    }
+
+    internal sealed class TrackingHook : IDisposable
     {
         private int _failuresRemaining;
 
-        public TrackingDetour(int failuresBeforeSuccess)
+        public TrackingHook(string kind, int failuresBeforeSuccess)
         {
+            Kind = kind;
             _failuresRemaining = failuresBeforeSuccess;
         }
+
+        public string Kind { get; }
 
         public int DisposeAttempts { get; private set; }
 
@@ -1269,7 +1537,7 @@ internal sealed class TrackingHookService : IInsiderHookService
             if (_failuresRemaining > 0)
             {
                 _failuresRemaining--;
-                throw new InvalidOperationException("Expected tracking detour removal failure.");
+                throw new InvalidOperationException("Expected tracking hook removal failure.");
             }
 
             IsDisposed = true;
@@ -1333,6 +1601,75 @@ internal static class ManagedHookTarget
     public static int AddOneHundred(ManagedHookOriginal original)
     {
         return original() + 100;
+    }
+}
+
+internal static class ManagedIlHookTarget
+{
+    public static void ReplaceSevenWithFortyTwo(ILContext il)
+    {
+        var cursor = new ILCursor(il);
+        if (!cursor.TryGotoNext(
+            MoveType.Before,
+            instruction => instruction.MatchLdcI4(7)))
+        {
+            throw new InvalidOperationException("Expected integer constant 7 was not found.");
+        }
+
+        cursor.Remove();
+        cursor.Emit(OpCodes.Ldc_I4, 42);
+    }
+
+    public static void AddTenBeforeReturn(ILContext il)
+    {
+        AddBeforeReturn(il, 10);
+    }
+
+    public static void AddTwentyBeforeReturn(ILContext il)
+    {
+        AddBeforeReturn(il, 20);
+    }
+
+    public static void AddOneHundredBeforeReturn(ILContext il)
+    {
+        AddBeforeReturn(il, 100);
+    }
+
+    public static void AddFiveBeforeFieldStore(ILContext il)
+    {
+        var cursor = new ILCursor(il);
+        if (!cursor.TryGotoNext(
+            MoveType.Before,
+            instruction => instruction.OpCode == OpCodes.Stfld))
+        {
+            throw new InvalidOperationException("Expected value-type field store was not found.");
+        }
+
+        cursor.Emit(OpCodes.Ldc_I4, 5);
+        cursor.Emit(OpCodes.Add);
+    }
+
+    public static void NoOp(ILContext il)
+    {
+    }
+
+    public static void Fail(ILContext il)
+    {
+        throw new InvalidOperationException("Expected IL manipulator failure.");
+    }
+
+    private static void AddBeforeReturn(ILContext il, int value)
+    {
+        var cursor = new ILCursor(il);
+        if (!cursor.TryGotoNext(
+            MoveType.Before,
+            instruction => instruction.OpCode == OpCodes.Ret))
+        {
+            throw new InvalidOperationException("Expected return instruction was not found.");
+        }
+
+        cursor.Emit(OpCodes.Ldc_I4, value);
+        cursor.Emit(OpCodes.Add);
     }
 }
 
@@ -1621,6 +1958,34 @@ internal static class ManagedStaticConstructorHookTarget
     }
 }
 
+internal struct ManagedIlValueTarget
+{
+    private int _value;
+
+    public ManagedIlValueTarget(int value)
+    {
+        _value = value;
+    }
+
+    public int Value => _value;
+}
+
+internal abstract class ManagedAbstractIlHookTarget
+{
+    public abstract int Value();
+}
+
+internal static class ManagedUnsupportedIlHookTarget
+{
+    [DllImport("kernel32.dll")]
+    public static extern int External();
+
+    public static int VarArg(int value, __arglist)
+    {
+        return value;
+    }
+}
+
 [InsiderPlugin("dev.insider.tests.hooking", "Hooking", "1.0.0")]
 public sealed class HookingPlugin : IInsiderPlugin
 {
@@ -1683,6 +2048,53 @@ public sealed class FailingChainHookingPlugin : IInsiderPlugin
     }
 }
 
+[InsiderPlugin("dev.insider.tests.il-hooking", "IL Hooking", "1.0.0")]
+public sealed class IlHookingPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        var target = typeof(ManagedHookTarget).GetMethod(nameof(ManagedHookTarget.Value))
+            ?? throw new InvalidOperationException("Managed IL hook target was not found.");
+        _ = context.Hooks.ModifyIl(target, ManagedIlHookTarget.AddTenBeforeReturn);
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.failing-il-hooking", "Failing IL Hooking", "1.0.0")]
+public sealed class FailingIlHookingPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        var target = typeof(ManagedHookTarget).GetMethod(nameof(ManagedHookTarget.Value))
+            ?? throw new InvalidOperationException("Managed IL hook target was not found.");
+        _ = context.Hooks.ModifyIl(target, ManagedIlHookTarget.AddTenBeforeReturn);
+        throw new InvalidOperationException("Expected failure after applying an IL hook.");
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.failing-il-chain", "Failing IL Chain", "1.0.0")]
+public sealed class FailingIlChainPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        var target = typeof(ManagedHookTarget).GetMethod(nameof(ManagedHookTarget.Value))
+            ?? throw new InvalidOperationException("Managed IL hook target was not found.");
+        _ = context.Hooks.ModifyIl(target, ManagedIlHookTarget.AddOneHundredBeforeReturn);
+        throw new InvalidOperationException("Expected failure after extending an IL hook chain.");
+    }
+
+    public void Unload()
+    {
+    }
+}
+
 [InsiderPlugin("dev.insider.tests.retrying-cleanup", "Retrying Cleanup", "1.0.0")]
 public sealed class RetryingCleanupPlugin : IInsiderPlugin
 {
@@ -1714,6 +2126,37 @@ public sealed class RetryingCleanupPlugin : IInsiderPlugin
     }
 }
 
+[InsiderPlugin("dev.insider.tests.retrying-il-cleanup", "Retrying IL Cleanup", "1.0.0")]
+public sealed class RetryingIlCleanupPlugin : IInsiderPlugin
+{
+    private IDisposable? _hook;
+
+    public static bool ObservedFirstFailure { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        var target = typeof(ManagedHookTarget).GetMethod(nameof(ManagedHookTarget.Value))
+            ?? throw new InvalidOperationException("Managed IL hook target was not found.");
+        _hook = context.Hooks.ModifyIl(target, ManagedIlHookTarget.NoOp);
+    }
+
+    public void Unload()
+    {
+        try
+        {
+            _hook?.Dispose();
+        }
+        catch (InvalidOperationException)
+        {
+            ObservedFirstFailure = true;
+        }
+        finally
+        {
+            _hook = null;
+        }
+    }
+}
+
 [InsiderPlugin("dev.insider.tests.multiple-cleanup", "Multiple Cleanup", "1.0.0")]
 public sealed class MultipleCleanupPlugin : IInsiderPlugin
 {
@@ -1723,6 +2166,22 @@ public sealed class MultipleCleanupPlugin : IInsiderPlugin
             ?? throw new InvalidOperationException("Managed hook target was not found.");
         _ = context.Hooks.Detour(target, (Func<int>)ManagedHookTarget.Replacement);
         _ = context.Hooks.Detour(target, (Func<int>)ManagedHookTarget.Replacement);
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.multiple-il-cleanup", "Multiple IL Cleanup", "1.0.0")]
+public sealed class MultipleIlCleanupPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        var target = typeof(ManagedHookTarget).GetMethod(nameof(ManagedHookTarget.Value))
+            ?? throw new InvalidOperationException("Managed IL hook target was not found.");
+        _ = context.Hooks.ModifyIl(target, ManagedIlHookTarget.NoOp);
+        _ = context.Hooks.ModifyIl(target, ManagedIlHookTarget.NoOp);
     }
 
     public void Unload()

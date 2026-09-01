@@ -78,4 +78,9 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Loader-owned `ModifyIl` hooks backed by MonoMod `ILContext`, including managed
   IL-body validation, multicast rejection, composable independently removable
   manipulators, retryable cleanup, stable diagnostics, and complete usage
-  documentation. Runtime test coverage follows in the dedicated test phase.
+  documentation.
+- Managed IL-hook coverage for rewriting and restoration, chains, detour
+  coexistence, value-type constructors, validation, ownership, and retryable
+  cleanup, plus a real Unity Mono `Assembly-CSharp` rewrite and live removal.
+- Deterministic resolution of public Insider and MonoMod/Cecil dependencies from
+  the host-owned `Insider/core` directory, without plugin-private copies.

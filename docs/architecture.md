@@ -26,7 +26,8 @@ Insider-specific facade would add a large second instruction API.
 
 ### Insider.Loader
 
-Discovers plugin assemblies, catalogs managed dependencies, validates metadata
+Discovers plugin assemblies, catalogs managed dependencies from the plugin tree
+and the host-owned `Insider/core` directory, validates metadata
 and unique identifiers, creates plugin instances, and owns their load/unload
 lifecycle. Requested dependency identities are resolved from the plugin tree;
 an identical identity already resident in the game application domain may be
@@ -118,8 +119,9 @@ backend.
 - A plugin failure must be logged with plugin identity and stage.
 - Dependency resolution must be deterministic; ambiguous assembly identities
   fail closed before plugin discovery.
-- The plugin resolver handles requests originating from catalogued plugin
-  assemblies only; core and runtime dependencies remain the host's concern.
+- The managed resolver handles requests originating from catalogued plugin or
+  core assemblies. Host runtime dependencies come only from `Insider/core`;
+  plugins must not redistribute private copies.
 - Plugin activation must follow declared required dependencies, never incidental
   filesystem or reflection order.
 - Every detour or IL hook created through a plugin context belongs to that
@@ -149,7 +151,8 @@ proves that the native proxy can enter the existing Mono domain, start the
 managed loader, load one plugin, apply a managed method detour, and unload the
 plugin during process exit. The plugin also waits for Unity's real
 `Assembly-CSharp` instance and detours a method that the player invokes
-directly. The fixture also removes both detour nodes while the player remains
-active and verifies that a later direct call returns the original result. It
+directly. It also rewrites a second game method through `ModifyIl`. The fixture
+removes the detour chain and IL hook while the player remains active and
+verifies that later direct calls return the original results. It
 closes the basic integration gap without turning one Unity version into a broad
 support claim. See [testing.md](testing.md).

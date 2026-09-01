@@ -461,7 +461,10 @@ public sealed class PluginHost : IDisposable
     {
         if (_dependencyResolver is null)
         {
-            _dependencyResolver = PluginAssemblyResolver.Create(pluginDirectory, _context.Logger);
+            _dependencyResolver = PluginAssemblyResolver.Create(
+                pluginDirectory,
+                Path.Combine(_context.InsiderDirectory, "core"),
+                _context.Logger);
             return;
         }
 

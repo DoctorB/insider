@@ -55,5 +55,5 @@ and must fail closed when an expected instruction pattern is absent.
   private copies into the shared Unity application domain.
 - Insider can validate target shape and lifecycle, but only the manipulator can
   guarantee valid stack behavior, branches, and exception regions.
-- Runtime and Unity evidence for IL hooks is gathered in the separate test phase
-  before compatibility claims are expanded.
+- Managed and real Unity evidence for IL hooks is maintained separately from
+  the contract so one controlled fixture does not overstate compatibility.

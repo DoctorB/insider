@@ -13,11 +13,18 @@ conflict with the loader's compatibility and ownership goals.
 
 ## Decision
 
-Insider builds one dependency catalog for `Insider/plugins` and its
+Insider builds one managed dependency catalog from host-owned DLLs in
+`Insider/core`, top-level plugin assemblies in `Insider/plugins`, and the shared
 `dependencies` subtree before scanning plugin entry assemblies. Resolution uses
-the requested full assembly identity. Duplicate simple names, different
-versions with the same simple name, and conflicts with already loaded assemblies
-fail closed with diagnostics.
+the requested full assembly identity and also follows transitive requests from
+catalogued core assemblies. Duplicate simple names, different versions with the
+same simple name, and conflicts with already loaded assemblies fail closed with
+diagnostics.
+
+`Insider/core` remains reserved for the pinned assemblies installed by Insider.
+Including it in the same deterministic resolver lets public contracts such as
+`ILContext` work without requiring each plugin to redistribute MonoMod or
+Mono.Cecil.
 
 An already loaded assembly with the same full identity may be reused by the
 runtime. Insider rejects a different resident identity but does not attempt to
@@ -33,6 +40,7 @@ until the process exits.
 
 - Plugin startup is deterministic and conflicts are visible before plugin code
   runs.
+- Public host dependencies are resolved from one trusted installation location.
 - Plugin authors must share one dependency version per simple assembly name.
 - Per-plugin side-by-side dependency isolation is not supported in the initial
   Unity Mono backend.

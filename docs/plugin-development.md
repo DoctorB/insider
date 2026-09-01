@@ -224,8 +224,10 @@ failures use `InsiderHookException` and failed removal stays retryable under the
 same plugin ownership rules as a detour.
 
 The Insider package supplies the pinned `MonoMod.*` and `Mono.Cecil*` runtime
-assemblies. Use the compile-time dependency selected by `Insider.Abstractions`;
-do not copy those host assemblies into the plugin or its dependency directory.
+assemblies from `Insider/core`. The loader resolves these host-owned identities
+for plugins and their transitive requests. Use the compile-time dependency
+selected by `Insider.Abstractions`; do not copy those host assemblies into the
+plugin or its dependency directory.
 The complete IL examples and safety rules live in [hooking.md](hooking.md).
 
 ## Installation layout
@@ -248,14 +250,19 @@ ignored by the managed catalog.
 
 ## Dependency rules
 
-Insider resolves an exact assembly identity: name, version, culture, and public
-key token. The following conditions stop the plugin scan before any plugin code
-runs:
+Insider builds one catalog from the top-level plugin DLLs, their shared
+`dependencies` subtree, and the host-owned DLLs in `Insider/core`. It resolves
+an exact assembly identity: name, version, culture, and public key token. The
+following conditions stop the plugin scan before any plugin code runs:
 
 - two dependency candidates have the same simple assembly name;
 - two versions of the same assembly are present;
 - a candidate conflicts with an assembly already loaded by the game;
 - the plugin host is reused with a different plugin directory.
+
+`Insider/core` is reserved for files installed and versioned by Insider. Do not
+place plugin libraries there or redistribute host assemblies in the plugin
+tree; either case can create a duplicate simple name and fail the scan.
 
 A missing dependency fails only the affected plugin when the runtime requests
 it. All resolution decisions and errors are recorded in

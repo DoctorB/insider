@@ -16,11 +16,13 @@ internal sealed class PluginAssemblyResolver : IDisposable
 
     private PluginAssemblyResolver(
         string pluginDirectory,
+        string coreDirectory,
         IReadOnlyDictionary<string, AssemblyCandidate> assembliesByIdentity,
         IReadOnlyDictionary<string, IReadOnlyList<AssemblyCandidate>> assembliesByName,
         IInsiderLogger logger)
     {
         PluginDirectory = pluginDirectory;
+        CoreDirectory = coreDirectory;
         _assembliesByIdentity = assembliesByIdentity;
         _assembliesByName = assembliesByName;
         _logger = logger;
@@ -29,11 +31,21 @@ internal sealed class PluginAssemblyResolver : IDisposable
 
     public string PluginDirectory { get; }
 
-    public static PluginAssemblyResolver Create(string pluginDirectory, IInsiderLogger logger)
+    public string CoreDirectory { get; }
+
+    public static PluginAssemblyResolver Create(
+        string pluginDirectory,
+        string coreDirectory,
+        IInsiderLogger logger)
     {
         if (string.IsNullOrWhiteSpace(pluginDirectory))
         {
             throw new ArgumentException("A plugin directory is required.", nameof(pluginDirectory));
+        }
+
+        if (string.IsNullOrWhiteSpace(coreDirectory))
+        {
+            throw new ArgumentException("A core directory is required.", nameof(coreDirectory));
         }
 
         if (logger is null)
@@ -42,7 +54,8 @@ internal sealed class PluginAssemblyResolver : IDisposable
         }
 
         var normalizedDirectory = Path.GetFullPath(pluginDirectory);
-        var candidates = DiscoverCandidates(normalizedDirectory);
+        var normalizedCoreDirectory = Path.GetFullPath(coreDirectory);
+        var candidates = DiscoverCandidates(normalizedDirectory, normalizedCoreDirectory);
         ValidateCandidateConflicts(candidates);
         ValidateLoadedAssemblyConflicts(candidates);
 
@@ -57,7 +70,12 @@ internal sealed class PluginAssemblyResolver : IDisposable
                 group => (IReadOnlyList<AssemblyCandidate>)group.ToArray(),
                 StringComparer.OrdinalIgnoreCase);
 
-        return new PluginAssemblyResolver(normalizedDirectory, byIdentity, byName, logger);
+        return new PluginAssemblyResolver(
+            normalizedDirectory,
+            normalizedCoreDirectory,
+            byIdentity,
+            byName,
+            logger);
     }
 
     public void Dispose()
@@ -92,7 +110,7 @@ internal sealed class PluginAssemblyResolver : IDisposable
             return null;
         }
 
-        if (!IsPluginAssembly(eventArgs.RequestingAssembly))
+        if (!IsCataloguedAssembly(eventArgs.RequestingAssembly))
         {
             return null;
         }
@@ -117,12 +135,12 @@ internal sealed class PluginAssemblyResolver : IDisposable
                 try
                 {
                     var resolved = Assembly.Load(File.ReadAllBytes(candidate.Path));
-                    _logger.Info($"Resolved plugin dependency '{requestedFullName}' from '{candidate.Path}'.");
+                    _logger.Info($"Resolved managed dependency '{requestedFullName}' from '{candidate.Path}'.");
                     return resolved;
                 }
                 catch (Exception exception)
                 {
-                    _logger.Error($"Could not load plugin dependency '{requestedFullName}' from '{candidate.Path}'.", exception);
+                    _logger.Error($"Could not load managed dependency '{requestedFullName}' from '{candidate.Path}'.", exception);
                     return null;
                 }
             }
@@ -134,14 +152,15 @@ internal sealed class PluginAssemblyResolver : IDisposable
             }
             else
             {
-                _logger.Error($"Plugin dependency '{requestedFullName}' is not present under '{PluginDirectory}'.");
+                _logger.Error(
+                    $"Plugin dependency '{requestedFullName}' is not present under '{PluginDirectory}' or '{CoreDirectory}'.");
             }
 
             return null;
         }
     }
 
-    private bool IsPluginAssembly(Assembly? assembly)
+    private bool IsCataloguedAssembly(Assembly? assembly)
     {
         if (assembly is null)
         {
@@ -152,10 +171,17 @@ internal sealed class PluginAssemblyResolver : IDisposable
         return !string.IsNullOrWhiteSpace(identity) && _assembliesByIdentity.ContainsKey(identity);
     }
 
-    private static IReadOnlyList<AssemblyCandidate> DiscoverCandidates(string pluginDirectory)
+    private static IReadOnlyList<AssemblyCandidate> DiscoverCandidates(
+        string pluginDirectory,
+        string coreDirectory)
     {
         var paths = new List<string>();
         paths.AddRange(Directory.GetFiles(pluginDirectory, "*.dll", SearchOption.TopDirectoryOnly));
+
+        if (Directory.Exists(coreDirectory))
+        {
+            paths.AddRange(Directory.GetFiles(coreDirectory, "*.dll", SearchOption.TopDirectoryOnly));
+        }
 
         var dependencyDirectory = Path.Combine(pluginDirectory, "dependencies");
         if (Directory.Exists(dependencyDirectory))
