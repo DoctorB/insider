@@ -59,6 +59,26 @@ the expected diagnostic instead of crashing the host process.
 The fixture contains no Unity or Mono code and is never included in release
 packages.
 
+### Pending IL-hook phase
+
+IL-hook tests are intentionally deferred until the implementation and public
+documentation are complete. The second phase must cover at least:
+
+1. instruction replacement through `ILCursor` and observable restoration;
+2. multiple IL manipulators on one target with selective removal;
+3. coexistence of an IL hook and a managed detour;
+4. cleanup after normal unload and failed plugin activation;
+5. idempotent removal and retry after a simulated removal failure;
+6. rejection of missing-body, generic, vararg, static-constructor, and
+   multicast-manipulator targets;
+7. stable `InsiderHookException` diagnostics for manipulation, apply, and
+   removal failures;
+8. a real Unity Mono hook against the effective `Assembly-CSharp` instance.
+
+No item in this section is current runtime evidence until its test exists and
+has passed. This separation keeps implementation work from silently becoming a
+compatibility claim.
+
 ### Windows package smoke test
 
 `eng/Test-WindowsPackage.ps1` verifies the assembled artifact before upload. It
@@ -118,7 +138,8 @@ game, but it does not validate game-specific behavior, Unity main-thread APIs,
 hooks against UnityEngine or production game code, ordered chains or chains
 involving multiple real plugins, constructor hooks inside Unity, complex method
 signatures beyond those listed above, removal-failure retry paths inside Unity,
-value-type constructors, anti-cheat interaction, or other Unity/Mono versions.
+value-type constructors, IL rewriting, anti-cheat interaction, or other
+Unity/Mono versions.
 Broader
 real-player evidence is still required before compatibility can move from
 experimental to supported.

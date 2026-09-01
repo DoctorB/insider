@@ -18,8 +18,11 @@ Unity executable
 ### Insider.Abstractions
 
 The public plugin contract. It contains metadata, lifecycle, logging, runtime
-information, and the minimal managed-detour service interface. It has no
-dependency on Unity, a mod loader, a native bootstrap, or MonoMod types.
+information, and the small managed-hook service interface. It has no dependency
+on Unity, a mod loader, or a native bootstrap. Managed detours remain
+backend-neutral; the advanced `ModifyIl` operation deliberately exposes
+MonoMod's `ILContext` because replacing that complete IL model with an
+Insider-specific facade would add a large second instruction API.
 
 ### Insider.Loader
 
@@ -44,8 +47,8 @@ initial loader contract.
 
 Each activated plugin receives a thin context wrapper whose logger prefixes
 messages with the plugin ID and whose hooking service tracks that plugin's
-detours. Remaining detours are removed in reverse creation order after
-`Unload()`, including cleanup after a failed `Load()`.
+detours and IL hooks. Remaining hooks are removed in reverse creation order
+after `Unload()`, including cleanup after a failed `Load()`.
 
 ### Insider.Bootstrap
 
@@ -73,9 +76,11 @@ never overwritten.
 ### Insider.Hooking
 
 The first runtime backend implements `IInsiderHookService` through
-MonoMod.RuntimeDetour. The public surface creates direct managed method and
-instance-constructor detours from a `MethodBase` and replacement `Delegate`;
-construction applies the detour immediately and disposal removes it.
+MonoMod.RuntimeDetour. `Detour` creates direct managed method and
+instance-constructor detours from a `MethodBase` and replacement `Delegate`.
+`ModifyIl` rewrites a target with a readable managed body through a MonoMod
+`ILContext`. Construction applies either hook immediately and disposal removes
+only that handle's contribution.
 Replacements use exact signatures, preserve declared by-reference parameters,
 include `self` for reference-type instance members and `ref self` for value-type
 instance methods, preserve managed by-reference returns, and may prepend an
@@ -85,14 +90,20 @@ source hooks and Mono may share their generated code. Virtual base methods and
 overrides are separate reflected implementations and separate hook targets.
 Constructors use `void` signatures. Multiple detours can form a
 continuation chain, but every handle remains independently owned and removable.
+Multiple IL manipulators rebuild one target body in a backend-managed chain;
+they must match semantic instruction patterns and remain deterministic because
+the backend may invoke them again as that chain changes. IL hooks and detours
+can share a target, but Insider does not define inter-plugin ordering.
 The backend wraps application and removal failures in `InsiderHookException`;
 successful disposal is idempotent, while failed disposal keeps the handle
-tracked and retryable. MonoMod types, static and value-type constructors, IL
-hooks, HookGen, detour ordering, and native detours are not exposed by the
-initial contract.
+tracked and retryable. IL hooks additionally require a readable method body and
+place stack, branch, local, and exception-region correctness on the manipulator.
+Static constructors, HookGen, hook ordering, and native detours are not exposed.
+Value-type constructors remain unsupported by `Detour` but are valid
+`ModifyIl` targets when reflection exposes their body.
 
-The public signature and lifecycle rules are documented with working patterns
-in the [managed hooking guide](hooking.md).
+The public signature, IL, and lifecycle rules are documented with working
+patterns in the [runtime hooking guide](hooking.md).
 
 The old v1 memory patcher remains archived and is not used by the production
 backend.
@@ -111,11 +122,11 @@ backend.
   assemblies only; core and runtime dependencies remain the host's concern.
 - Plugin activation must follow declared required dependencies, never incidental
   filesystem or reflection order.
-- Every detour created through a plugin context belongs to that plugin and must
-  be removed even when plugin load or unload fails.
+- Every detour or IL hook created through a plugin context belongs to that
+  plugin and must be removed even when plugin load or unload fails.
 - A failed removal must remain observable and retryable; it must not be marked
   complete or silently dropped from plugin ownership.
-- Removing or rolling back one plugin's detours must leave other owners' nodes
+- Removing or rolling back one plugin's hooks must leave other owners' nodes
   in the same target chain intact.
 - A hook must target the assembly instance used by Unity; late game assemblies
   are observed when loaded rather than forced into the application domain.

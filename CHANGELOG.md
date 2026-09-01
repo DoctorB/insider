@@ -75,3 +75,7 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Stable `InsiderHookException` wrapping backend application and removal
   failures, plus target-aware readable signature diagnostics and explicit
   multicast-delegate rejection.
+- Loader-owned `ModifyIl` hooks backed by MonoMod `ILContext`, including managed
+  IL-body validation, multicast rejection, composable independently removable
+  manipulators, retryable cleanup, stable diagnostics, and complete usage
+  documentation. Runtime test coverage follows in the dedicated test phase.

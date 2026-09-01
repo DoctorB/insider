@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using MonoMod.Cil;
 
 namespace Insider.Loader;
 
@@ -8,7 +9,7 @@ internal sealed class PluginHookService : IInsiderHookService, IDisposable
 {
     private readonly object _sync = new object();
     private readonly IInsiderHookService _inner;
-    private readonly List<OwnedDetour> _detours = new List<OwnedDetour>();
+    private readonly List<OwnedHook> _hooks = new List<OwnedHook>();
     private bool _disposed;
 
     public PluginHookService(IInsiderHookService inner)
@@ -18,39 +19,34 @@ internal sealed class PluginHookService : IInsiderHookService, IDisposable
 
     public IDisposable Detour(MethodBase target, Delegate replacement)
     {
-        lock (_sync)
-        {
-            if (_disposed)
-            {
-                throw new ObjectDisposedException(nameof(PluginHookService));
-            }
+        return Own(() => _inner.Detour(target, replacement));
+    }
 
-            var detour = new OwnedDetour(_inner.Detour(target, replacement), Release);
-            _detours.Add(detour);
-            return detour;
-        }
+    public IDisposable ModifyIl(MethodBase target, Action<ILContext> manipulator)
+    {
+        return Own(() => _inner.ModifyIl(target, manipulator));
     }
 
     public void Dispose()
     {
-        OwnedDetour[] detours;
+        OwnedHook[] hooks;
         lock (_sync)
         {
-            if (_disposed && _detours.Count == 0)
+            if (_disposed && _hooks.Count == 0)
             {
                 return;
             }
 
             _disposed = true;
-            detours = _detours.ToArray();
+            hooks = _hooks.ToArray();
         }
 
         List<Exception>? failures = null;
-        for (var index = detours.Length - 1; index >= 0; index--)
+        for (var index = hooks.Length - 1; index >= 0; index--)
         {
             try
             {
-                detours[index].Dispose();
+                hooks[index].Dispose();
             }
             catch (Exception exception)
             {
@@ -61,26 +57,41 @@ internal sealed class PluginHookService : IInsiderHookService, IDisposable
 
         if (failures is not null)
         {
-            throw new AggregateException("One or more plugin detours could not be removed.", failures);
+            throw new AggregateException("One or more plugin hooks could not be removed.", failures);
         }
     }
 
-    private void Release(OwnedDetour detour)
+    private IDisposable Own(Func<IDisposable> create)
     {
         lock (_sync)
         {
-            _detours.Remove(detour);
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(PluginHookService));
+            }
+
+            var hook = new OwnedHook(create(), Release);
+            _hooks.Add(hook);
+            return hook;
         }
     }
 
-    private sealed class OwnedDetour : IDisposable
+    private void Release(OwnedHook hook)
+    {
+        lock (_sync)
+        {
+            _hooks.Remove(hook);
+        }
+    }
+
+    private sealed class OwnedHook : IDisposable
     {
         private readonly object _sync = new object();
         private readonly IDisposable _inner;
-        private readonly Action<OwnedDetour> _release;
+        private readonly Action<OwnedHook> _release;
         private bool _disposed;
 
-        public OwnedDetour(IDisposable inner, Action<OwnedDetour> release)
+        public OwnedHook(IDisposable inner, Action<OwnedHook> release)
         {
             _inner = inner ?? throw new ArgumentNullException(nameof(inner));
             _release = release ?? throw new ArgumentNullException(nameof(release));

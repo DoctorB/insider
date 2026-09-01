@@ -502,7 +502,7 @@ public sealed class PluginHost : IDisposable
         }
         catch (Exception exception)
         {
-            _context.Logger.Error($"Plugin '{source}' detour cleanup failed.", exception);
+            _context.Logger.Error($"Plugin '{source}' hook cleanup failed.", exception);
         }
     }
 

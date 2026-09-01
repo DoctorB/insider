@@ -8,4 +8,8 @@
     <VersionPrefix>0.1.0</VersionPrefix>
     <IsPackable>true</IsPackable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MonoMod.Utils" Version="25.0.14" />
+  </ItemGroup>
 </Project>

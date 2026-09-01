@@ -65,6 +65,11 @@ license. One controlled player does not establish compatibility with other
 Unity releases, game-specific native imports, anti-cheat systems, or modified
 Mono runtimes, so the backend remains experimental.
 
+The `ModifyIl` backend is implemented but is not part of the evidence listed
+above yet. Until the dedicated second-phase managed and real-player tests are
+added and run, IL hooking does not expand Insider's compatibility claim beyond
+the already experimental Unity Mono backend.
+
 ## Managed dependency constraints
 
 Unity Mono plugins share the game's application domain. Insider resolves exact

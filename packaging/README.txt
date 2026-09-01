@@ -14,8 +14,8 @@ Verify or remove:
 Plugins belong in <game>\Insider\plugins.
 Managed plugin dependencies belong in <game>\Insider\plugins\dependencies.
 Logs are written to <game>\Insider\logs.
-Managed detours use the loader-owned MonoMod.RuntimeDetour backend and are
-removed automatically when their owning plugin unloads.
+Managed detours and IL hooks use the loader-owned MonoMod.RuntimeDetour backend
+and are removed automatically when their owning plugin unloads.
 
 License terms are included in LICENSE and THIRD_PARTY_NOTICES.md.
 

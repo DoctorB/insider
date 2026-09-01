@@ -121,9 +121,9 @@ private static int Replacement(
 ```
 
 The detour is active as soon as `Detour` returns. Dispose the returned handle to
-remove it early. Insider also owns every handle created through a plugin context
-and removes remaining detours after that plugin's `Unload()` callback or after a
-failed `Load()`.
+remove it early. Insider also owns every hook handle created through a plugin
+context and removes remaining detours and IL hooks after that plugin's
+`Unload()` callback or after a failed `Load()`.
 
 Signatures are exact. A direct replacement receives the target arguments. An
 instance-method or constructor replacement receives the declaring type as
@@ -170,15 +170,63 @@ continues with the plugin's other handles and aggregates any failures.
 Hook the `MethodInfo` or `ConstructorInfo` from the assembly instance Unity
 actually uses. Game assemblies such as `Assembly-CSharp` may load after Insider
 plugins. Do not force an early private copy with `Assembly.Load`; observe
-`AppDomain.AssemblyLoad`, install the detour when the requested assembly
-arrives, and unsubscribe during `Unload()`. Detours created through the saved
-plugin context remain loader-owned.
+`AppDomain.AssemblyLoad`, install the hook when the requested assembly arrives,
+and unsubscribe during `Unload()`. Hooks created through the saved plugin
+context remain loader-owned.
 
 Abstract methods, all generic methods, members declared on generic types,
 multicast replacement delegates, variable-argument methods, static constructors,
-and value-type constructors are rejected. IL rewriting, HookGen, ordering
-controls, and native hooks remain outside the Insider contract even when the
-underlying backend offers related features.
+and value-type constructors are rejected by `Detour`. HookGen, ordering controls,
+and native hooks remain outside the Insider contract even when the underlying
+backend offers related features.
+
+## IL hooks
+
+Use `context.Hooks.ModifyIl(target, manipulator)` for a precise edit inside a
+method body. The manipulator receives MonoMod's `ILContext`, so plugin code can
+use `ILCursor`, Cecil opcodes, labels, locals, and exception handlers:
+
+```csharp
+using Mono.Cecil.Cil;
+using MonoMod.Cil;
+
+private IDisposable? _ilHook;
+
+private void InstallIlHook(IInsiderContext context, MethodInfo target)
+{
+    _ilHook = context.Hooks.ModifyIl(target, il =>
+    {
+        var cursor = new ILCursor(il);
+        if (!cursor.TryGotoNext(
+            MoveType.Before,
+            instruction => instruction.MatchLdcI4(7)))
+        {
+            throw new InvalidOperationException("Expected IL pattern not found.");
+        }
+
+        cursor.Remove();
+        cursor.Emit(OpCodes.Ldc_I4, 42);
+    });
+}
+```
+
+Match enough surrounding instructions to make the location unambiguous, fail
+closed when the game changes, and leave a valid evaluation stack. MonoMod may
+run the callback again when the IL-hook chain changes, so it must be
+deterministic and must not retain the supplied context, cursor, instructions, or
+labels. Multiple IL hooks are independently removable, but Insider deliberately
+does not expose their ordering.
+
+`ModifyIl` rejects targets without readable managed IL, generic and vararg
+targets, static constructors, and multicast manipulators. It can rewrite class
+or value-type instance constructors when they expose IL. Apply and removal
+failures use `InsiderHookException` and failed removal stays retryable under the
+same plugin ownership rules as a detour.
+
+The Insider package supplies the pinned `MonoMod.*` and `Mono.Cecil*` runtime
+assemblies. Use the compile-time dependency selected by `Insider.Abstractions`;
+do not copy those host assemblies into the plugin or its dependency directory.
+The complete IL examples and safety rules live in [hooking.md](hooking.md).
 
 ## Installation layout
 
@@ -221,7 +269,8 @@ Unity Mono uses a shared application domain. `Unload()` is a lifecycle callback,
 not assembly unloading: managed assemblies remain resident until the game exits.
 Plugin authors should therefore coordinate on common dependency versions and
 avoid modifying global state they cannot restore. Insider removes context-owned
-detours, but it cannot undo changes made through third-party hooking APIs.
+detours and IL hooks, but it cannot undo changes made through third-party
+hooking APIs.
 Insider reads managed images into memory and does not intentionally keep the
 source DLL files open.
 
