@@ -17,9 +17,9 @@ Unity executable
 
 ### Insider.Abstractions
 
-The public plugin contract. It contains metadata, lifecycle, logging, and runtime
-information interfaces. It has no dependency on Unity, a mod loader, or a native
-bootstrap.
+The public plugin contract. It contains metadata, lifecycle, logging, runtime
+information, and the minimal managed-detour service interface. It has no
+dependency on Unity, a mod loader, a native bootstrap, or MonoMod types.
 
 ### Insider.Loader
 
@@ -43,7 +43,9 @@ Dependencies may specify one minimum version; arbitrary ranges are outside the
 initial loader contract.
 
 Each activated plugin receives a thin context wrapper whose logger prefixes
-messages with the plugin ID. All other context values are delegated unchanged.
+messages with the plugin ID and whose hooking service tracks that plugin's
+detours. Remaining detours are removed in reverse creation order after
+`Unload()`, including cleanup after a failed `Load()`.
 
 ### Insider.Bootstrap
 
@@ -68,11 +70,16 @@ Insider. Installations are described by a manifest containing SHA-256 hashes.
 An existing root `version.dll` is preserved and restored; unknown core files are
 never overwritten.
 
-### Runtime hooking backend
+### Insider.Hooking
 
-Not implemented yet. The first spike will target Unity Mono through
-MonoMod.RuntimeDetour. The old v1 memory patcher is archived and must not be used
-as the production backend.
+The first runtime backend implements `IInsiderHookService` through
+MonoMod.RuntimeDetour. The public surface creates direct managed method detours
+from a `MethodInfo` and replacement `Delegate`; construction applies the detour
+immediately and disposal removes it. MonoMod types, IL hooks, HookGen, detour
+ordering, and native detours are not exposed by the initial contract.
+
+The old v1 memory patcher remains archived and is not used by the production
+backend.
 
 ## Design rules
 
@@ -84,8 +91,12 @@ as the production backend.
 - A plugin failure must be logged with plugin identity and stage.
 - Dependency resolution must be deterministic; ambiguous assembly identities
   fail closed before plugin discovery.
+- The plugin resolver handles requests originating from catalogued plugin
+  assemblies only; core and runtime dependencies remain the host's concern.
 - Plugin activation must follow declared required dependencies, never incidental
   filesystem or reflection order.
+- Every detour created through a plugin context belongs to that plugin and must
+  be removed even when plugin load or unload fails.
 - Third-party binaries require recorded versions, hashes, sources, and licenses.
 
 ## Security boundary
@@ -102,6 +113,6 @@ version conflicts. These deterministic contract tests run in CI.
 
 A separate local fixture builds a real Unity 2022.3 Windows x64 Mono player and
 proves that the native proxy can enter the existing Mono domain, start the
-managed loader, load one plugin, and unload it during process exit. It closes
-the basic integration gap without turning one Unity version into a broad
-support claim. See [testing.md](testing.md).
+managed loader, load one plugin, apply a managed method detour, and unload the
+plugin during process exit. It closes the basic integration gap without turning
+one Unity version into a broad support claim. See [testing.md](testing.md).

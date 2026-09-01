@@ -92,6 +92,11 @@ internal sealed class PluginAssemblyResolver : IDisposable
             return null;
         }
 
+        if (!IsPluginAssembly(eventArgs.RequestingAssembly))
+        {
+            return null;
+        }
+
         lock (_sync)
         {
             if (_disposed)
@@ -134,6 +139,17 @@ internal sealed class PluginAssemblyResolver : IDisposable
 
             return null;
         }
+    }
+
+    private bool IsPluginAssembly(Assembly? assembly)
+    {
+        if (assembly is null)
+        {
+            return false;
+        }
+
+        var identity = assembly.GetName().FullName;
+        return !string.IsNullOrWhiteSpace(identity) && _assembliesByIdentity.ContainsKey(identity);
     }
 
     private static IReadOnlyList<AssemblyCandidate> DiscoverCandidates(string pluginDirectory)

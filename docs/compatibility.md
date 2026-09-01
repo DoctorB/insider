@@ -41,7 +41,9 @@ The local `UnityMonoSmoke` fixture builds a development player with Unity
 `2022.3.62f2`, the Mono scripting backend, and the Windows x64 target. On
 2026-08-31 it verified the complete path from the local `version.dll` proxy to
 the managed bootstrap, plugin discovery, plugin load, process-exit unload, and
-persistent native and managed logs.
+persistent native and managed logs. On 2026-09-01 the same fixture also applied
+a MonoMod.RuntimeDetour managed hook inside Unity Mono and observed the expected
+replacement result during plugin load and unload.
 
 The fixture is repeatable through `eng/Test-UnityMonoSmoke.ps1`, but it is not
 run in GitHub Actions because hosted execution would require a Unity Editor and

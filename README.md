@@ -18,6 +18,7 @@ The first implementation target is intentionally narrow:
 - Windows x64
 - Managed plugins loaded from `Insider/plugins`
 - A loader-owned plugin lifecycle and diagnostics
+- Managed method detours backed by MonoMod.RuntimeDetour
 
 IL2CPP and additional operating systems are planned as separate runtime
 backends. They are not supported yet.
@@ -48,9 +49,9 @@ with the [plugin development guide](docs/plugin-development.md).
 ## Repository layout
 
 ```text
-src/       Maintained loader, SDK, bootstrap, and tooling
+src/       Maintained loader, SDK, bootstrap, hooking backend, and tooling
 native/    Insider-owned Windows process bootstrap
-tests/     Dependency-free executable test suite
+tests/     Managed, native, and real-player fixtures
 samples/   Example plugins
 legacy/    Archived Insider v1 source; never shipped or built
 docs/      Architecture, compatibility, and design decisions
@@ -106,8 +107,8 @@ Run the same check locally with:
 
 A local smoke fixture builds and launches a real Unity 2022.3 Windows x64
 player using the Mono scripting backend. It installs Insider, loads a test
-plugin, verifies native and managed diagnostics, and checks plugin unload on
-process exit:
+plugin, applies a managed detour, verifies native and managed diagnostics, and
+checks plugin unload on process exit:
 
 ```powershell
 ./eng/Test-UnityMonoSmoke.ps1
@@ -151,8 +152,10 @@ plugin is activated:
 Versions deliberately use only `MAJOR.MINOR.PATCH`, and dependencies support one
 simple constraint: an optional minimum version.
 
-The API is deliberately small while the runtime and hook lifecycle are proven
-against real Unity players.
+The initial hooking API is deliberately small. Plugins can apply a managed
+method detour through `context.Hooks.Detour(target, replacement)`. The returned
+handle removes it early when disposed; Insider also removes every remaining
+plugin-owned detour automatically after `Unload()` or a failed `Load()`.
 
 Messages written through `context.Logger` are automatically prefixed with the
 plugin ID, keeping the shared game log readable without extra logging APIs.

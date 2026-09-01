@@ -79,6 +79,43 @@ file. Insider automatically prefixes every plugin message with its declared ID:
 
 The prefix is added by the loader; plugins should not add it themselves.
 
+## Managed detours
+
+The first hooking API applies a direct managed method detour from a reflected
+target and a compatible replacement delegate:
+
+```csharp
+using System;
+using System.Reflection;
+
+private IDisposable? _detour;
+
+public void Load(IInsiderContext context)
+{
+    var target = typeof(TargetType).GetMethod(
+        "Compute",
+        BindingFlags.Public | BindingFlags.Static)
+        ?? throw new InvalidOperationException("Target method not found.");
+
+    _detour = context.Hooks.Detour(target, (Func<int, int>)Replacement);
+}
+
+private static int Replacement(int value)
+{
+    return value * 2;
+}
+```
+
+The detour is active as soon as `Detour` returns. Dispose the returned handle to
+remove it early. Insider also owns every handle created through a plugin context
+and removes remaining detours after that plugin's `Unload()` callback or after a
+failed `Load()`.
+
+The target and replacement signatures must be compatible. Abstract methods and
+open generic methods are rejected. Original-call continuations, IL rewriting,
+HookGen, ordering controls, and native hooks are not part of the initial Insider
+contract even when the underlying backend offers related features.
+
 ## Installation layout
 
 Place plugin entry assemblies directly in `Insider/plugins`. Put their managed
@@ -119,8 +156,10 @@ name is rejected; Insider cannot replace it safely.
 Unity Mono uses a shared application domain. `Unload()` is a lifecycle callback,
 not assembly unloading: managed assemblies remain resident until the game exits.
 Plugin authors should therefore coordinate on common dependency versions and
-avoid modifying global state they cannot restore. Insider reads managed images
-into memory and does not intentionally keep the source DLL files open.
+avoid modifying global state they cannot restore. Insider removes context-owned
+detours, but it cannot undo changes made through third-party hooking APIs.
+Insider reads managed images into memory and does not intentionally keep the
+source DLL files open.
 
 ## Bootstrap timing
 

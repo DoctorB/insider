@@ -206,6 +206,7 @@ public sealed class PluginHost : IDisposable
         }
 
         IInsiderPlugin? instance = null;
+        PluginContext? pluginContext = null;
         try
         {
             instance = (IInsiderPlugin?)Activator.CreateInstance(candidate.Type);
@@ -220,9 +221,10 @@ public sealed class PluginHost : IDisposable
                 candidate.Metadata.Version,
                 candidate.Type.FullName ?? candidate.Type.Name,
                 candidate.Dependencies);
-            instance.Load(new PluginContext(_context, descriptor.Id));
+            pluginContext = new PluginContext(_context, descriptor.Id);
+            instance.Load(pluginContext);
 
-            _plugins.Add(descriptor.Id, new LoadedPlugin(descriptor, instance));
+            _plugins.Add(descriptor.Id, new LoadedPlugin(descriptor, instance, pluginContext));
             _loadOrder.Add(descriptor.Id);
             _context.Logger.Info($"Loaded plugin {descriptor.Id} {descriptor.Version}.");
             return PluginLoadResult.Success(descriptor, candidate.Source);
@@ -230,6 +232,7 @@ public sealed class PluginHost : IDisposable
         catch (Exception exception)
         {
             TryUnloadPartial(instance, candidate.Source);
+            TryDisposeContext(pluginContext, candidate.Source);
             _context.Logger.Error($"Plugin '{candidate.Source}' failed during load.", exception);
             return PluginLoadResult.Failure(candidate.Source, exception.Message, exception);
         }
@@ -250,6 +253,10 @@ public sealed class PluginHost : IDisposable
             catch (Exception exception)
             {
                 _context.Logger.Error($"Plugin '{id}' failed during unload.", exception);
+            }
+            finally
+            {
+                TryDisposeContext(plugin.Context, id);
             }
         }
 
@@ -482,6 +489,23 @@ public sealed class PluginHost : IDisposable
         }
     }
 
+    private void TryDisposeContext(PluginContext? context, string source)
+    {
+        if (context is null)
+        {
+            return;
+        }
+
+        try
+        {
+            context.Dispose();
+        }
+        catch (Exception exception)
+        {
+            _context.Logger.Error($"Plugin '{source}' detour cleanup failed.", exception);
+        }
+    }
+
     private static bool IsPluginType(Type type)
     {
         return typeof(IInsiderPlugin).IsAssignableFrom(type) && type.IsClass && !type.IsAbstract;
@@ -501,14 +525,17 @@ public sealed class PluginHost : IDisposable
 
     private sealed class LoadedPlugin
     {
-        public LoadedPlugin(PluginDescriptor descriptor, IInsiderPlugin instance)
+        public LoadedPlugin(PluginDescriptor descriptor, IInsiderPlugin instance, PluginContext context)
         {
             Descriptor = descriptor;
             Instance = instance;
+            Context = context;
         }
 
         public PluginDescriptor Descriptor { get; }
 
         public IInsiderPlugin Instance { get; }
+
+        public PluginContext Context { get; }
     }
 }

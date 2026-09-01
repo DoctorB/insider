@@ -73,6 +73,25 @@ function Require-Text {
     }
 }
 
+function Reject-Text {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Path,
+
+        [Parameter(Mandatory = $true)]
+        [string] $Rejected
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Expected smoke-test output not found: '$Path'."
+    }
+
+    $content = Get-Content -LiteralPath $Path -Raw
+    if ($content.Contains($Rejected, [System.StringComparison]::Ordinal)) {
+        throw "'$Path' contains rejected text '$Rejected'."
+    }
+}
+
 function Resolve-CMakePath {
     param(
         [string] $RequestedPath
@@ -174,6 +193,8 @@ $relativePackage = [System.IO.Path]::GetRelativePath($repositoryRoot, $packageDi
     -CliPublishDirectory $relativeCli `
     -Configuration $Configuration `
     -OutputDirectory $relativePackage
+& (Join-Path $repositoryRoot "eng/Test-WindowsPackage.ps1") `
+    -PackageDirectory $relativePackage
 
 Invoke-CheckedProcess $unityPath @(
     "-batchmode",
@@ -199,9 +220,12 @@ Invoke-CheckedProcess $playerExecutable @(
 
 $insiderDirectory = Join-Path $playerDirectory "Insider"
 Require-Text (Join-Path $insiderDirectory "logs/native.log") "Managed bootstrap started successfully."
-Require-Text (Join-Path $insiderDirectory "logs/insider.log") "INSIDER_UNITY_MONO_SMOKE_PLUGIN_LOADED"
+$managedLog = Join-Path $insiderDirectory "logs/insider.log"
+Require-Text $managedLog "INSIDER_UNITY_MONO_SMOKE_PLUGIN_LOADED"
+Reject-Text $managedLog "[Error]"
 Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "Backend=UnityMono"
-Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "unloaded"
+Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-loaded.txt") "HookedValue=42"
+Require-Text (Join-Path $insiderDirectory "unity-smoke-plugin-unloaded.txt") "HookedValue=42"
 Require-Text $playerLog "INSIDER_UNITY_MONO_SMOKE_PLAYER_STARTED"
 
 Invoke-CheckedProcess "dotnet" @($packagedCli, "status", $playerExecutable) 60

@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using Insider;
 
 namespace Insider.UnityMonoSmokePlugin;
@@ -14,11 +16,24 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
     public void Load(IInsiderContext context)
     {
         _insiderDirectory = context.InsiderDirectory;
+        var target = typeof(UnityMonoSmokePlugin).GetMethod(
+            nameof(HookTarget),
+            BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException("Unity smoke hook target was not found.");
+        _ = context.Hooks.Detour(target, (Func<int>)HookReplacement);
+
+        var hookedValue = HookTarget();
+        if (hookedValue != 42)
+        {
+            throw new InvalidOperationException($"Unity smoke detour returned {hookedValue}; expected 42.");
+        }
+
         context.Logger.Info(Marker);
         File.WriteAllText(
             Path.Combine(context.InsiderDirectory, "unity-smoke-plugin-loaded.txt"),
             $"Backend={context.Runtime.Backend}{Environment.NewLine}" +
             $"Architecture={context.Runtime.Architecture}{Environment.NewLine}" +
+            $"HookedValue={hookedValue}{Environment.NewLine}" +
             $"GameDirectory={context.GameDirectory}{Environment.NewLine}");
     }
 
@@ -31,6 +46,18 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
 
         File.WriteAllText(
             Path.Combine(_insiderDirectory, "unity-smoke-plugin-unloaded.txt"),
-            "unloaded");
+            $"unloaded{Environment.NewLine}HookedValue={HookTarget()}");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int HookTarget()
+    {
+        return 7;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int HookReplacement()
+    {
+        return 42;
     }
 }

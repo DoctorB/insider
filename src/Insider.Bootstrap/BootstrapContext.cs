@@ -6,12 +6,14 @@ internal sealed class BootstrapContext : IInsiderContext
         string gameDirectory,
         string insiderDirectory,
         IInsiderLogger logger,
-        IInsiderRuntimeInfo runtime)
+        IInsiderRuntimeInfo runtime,
+        IInsiderHookService hooks)
     {
         GameDirectory = gameDirectory;
         InsiderDirectory = insiderDirectory;
         Logger = logger;
         Runtime = runtime;
+        Hooks = hooks;
     }
 
     public string GameDirectory { get; }
@@ -21,4 +23,6 @@ internal sealed class BootstrapContext : IInsiderContext
     public IInsiderLogger Logger { get; }
 
     public IInsiderRuntimeInfo Runtime { get; }
+
+    public IInsiderHookService Hooks { get; }
 }

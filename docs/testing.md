@@ -11,7 +11,8 @@ The executable suite in `tests/Insider.Tests` covers plugin discovery,
 metadata, duplicate identifiers, failure containment, reverse unload order,
 required and optional plugin dependency ordering, missing dependencies, cycles,
 failure propagation, numeric version validation, minimum-version enforcement,
-plugin-scoped logging, installation manifests, hash verification, and proxy
+plugin-scoped logging, managed detour application/removal, detour cleanup after
+unload or failed load, installation manifests, hash verification, and proxy
 backup restoration.
 
 ### Managed bootstrap integration fixture
@@ -56,8 +57,8 @@ packages.
 
 `eng/Test-WindowsPackage.ps1` verifies the assembled artifact before upload. It
 checks the native bootstrap, managed core, CLI runtime files and package README;
-requires license notices; rejects test assemblies and source files; and runs the
-packaged CLI help command.
+requires the complete hooking runtime and license notices; rejects test
+assemblies and source files; and runs the packaged CLI help command.
 
 ### Real Unity Mono smoke test
 
@@ -71,9 +72,12 @@ The test succeeds only when all of these observations are present:
 1. Unity starts and exits normally after the fixture delay;
 2. `version.dll` finds the real Unity Mono runtime;
 3. the managed bootstrap reports `UnityMono` and `x64`;
-4. the test plugin writes its load marker and scoped log message;
-5. the plugin writes its unload marker during process exit;
-6. the installed files still pass the CLI status check.
+4. MonoMod.RuntimeDetour changes the plugin's managed test method from `7` to
+   `42` inside the real Unity Mono runtime;
+5. the test plugin writes its load marker and scoped log message;
+6. the detour remains active through the plugin's `Unload()` callback;
+7. the managed log contains no error entries;
+8. the installed files still pass the CLI status check.
 
 This test is local rather than part of GitHub Actions because it needs an
 installed and licensed Unity Editor. Its generated project state, package, and
@@ -84,9 +88,10 @@ player stay below `artifacts/unity-mono-smoke` or ignored Unity directories.
 The fake native runtime cannot execute managed IL or reproduce Unity's Mono
 fork. The real-player fixture covers one Unity release and a deliberately empty
 game, but it does not validate game-specific behavior, Unity main-thread APIs,
-runtime method hooks, anti-cheat interaction, or other Unity/Mono versions.
-Broader real-player evidence is still required before compatibility can move
-from experimental to supported.
+hooks against Unity or game assemblies, complex method signatures, detour
+chains, anti-cheat interaction, or other Unity/Mono versions. Broader
+real-player evidence is still required before compatibility can move from
+experimental to supported.
 
 ## Run locally
 

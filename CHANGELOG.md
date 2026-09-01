@@ -35,3 +35,9 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Local Unity 2022.3 Windows x64 Mono smoke player covering the complete native
   bootstrap, managed loader, plugin load/unload, diagnostics, and installer
   status path.
+- Minimal `IInsiderHookService` API and a MonoMod.RuntimeDetour 25.3.6 backend
+  for direct managed method detours.
+- Plugin-owned detour cleanup after normal unload and failed plugin activation,
+  plus managed and real Unity Mono hook fixtures.
+- Plugin-scoped assembly resolution that leaves core hooking dependencies to the
+  host without false missing-dependency errors.

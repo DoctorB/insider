@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using Insider.Bootstrap;
+using Insider.Hooking;
 using Insider.Installation;
 using Insider.Loader;
 
@@ -19,6 +22,9 @@ internal static class Program
             ("rejects missing metadata", RejectsMissingMetadata),
             ("contains plugin load failures", ContainsLoadFailure),
             ("scopes plugin log messages by id", ScopesPluginLogMessagesById),
+            ("applies and removes a managed detour", AppliesAndRemovesManagedDetour),
+            ("removes plugin detours during unload", RemovesPluginDetoursDuringUnload),
+            ("removes plugin detours after failed load", RemovesPluginDetoursAfterFailedLoad),
             ("unloads plugins in reverse order", UnloadsInReverseOrder),
             ("loads required plugin dependencies first", LoadsRequiredPluginDependenciesFirst),
             ("loads present optional plugin dependencies first", LoadsPresentOptionalPluginDependenciesFirst),
@@ -104,6 +110,44 @@ internal static class Program
         Assert(
             context.CapturedLogger.Messages.Contains("Loaded plugin dev.insider.tests.logging 1.0.0."),
             "Loader message was unexpectedly changed by the plugin scope.");
+    }
+
+    private static void AppliesAndRemovesManagedDetour()
+    {
+        var service = new RuntimeDetourHookService();
+        var target = GetRequiredMethod(typeof(ManagedHookTarget), nameof(ManagedHookTarget.Value));
+
+        Assert(ManagedHookTarget.Value() == 7, "Managed hook target did not begin with its original value.");
+        using (service.Detour(target, (Func<int>)ManagedHookTarget.Replacement))
+        {
+            Assert(ManagedHookTarget.Value() == 42, "Managed detour did not replace the target method.");
+        }
+
+        Assert(ManagedHookTarget.Value() == 7, "Disposing the managed detour did not restore the target method.");
+    }
+
+    private static void RemovesPluginDetoursDuringUnload()
+    {
+        using var host = CreateHost(new RuntimeDetourHookService());
+
+        var result = host.Load(typeof(HookingPlugin));
+
+        Assert(result.Succeeded, result.Error ?? "Hooking plugin did not load.");
+        Assert(ManagedHookTarget.Value() == 42, "Plugin-owned detour was not applied.");
+
+        host.UnloadAll();
+
+        Assert(ManagedHookTarget.Value() == 7, "Plugin-owned detour remained applied after unload.");
+    }
+
+    private static void RemovesPluginDetoursAfterFailedLoad()
+    {
+        using var host = CreateHost(new RuntimeDetourHookService());
+
+        var result = host.Load(typeof(FailingHookingPlugin));
+
+        Assert(!result.Succeeded, "Failing hooking plugin was reported as loaded.");
+        Assert(ManagedHookTarget.Value() == 7, "Failed plugin load left its detour applied.");
     }
 
     private static void UnloadsInReverseOrder()
@@ -336,9 +380,15 @@ internal static class Program
         Assert(!File.Exists(modifiedPath), "Forced uninstall did not remove the modified file.");
     }
 
-    private static PluginHost CreateHost()
+    private static PluginHost CreateHost(IInsiderHookService? hooks = null)
     {
-        return new PluginHost(new TestContext());
+        return new PluginHost(new TestContext(hooks));
+    }
+
+    private static MethodInfo GetRequiredMethod(Type type, string name)
+    {
+        return type.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException($"Method '{type.FullName}.{name}' was not found.");
     }
 
     private static void ResetFixtures()
@@ -515,9 +565,29 @@ internal sealed class InstallationFixture : IDisposable
         Directory.CreateDirectory(Path.Combine(bundleDirectory, "core"));
         File.WriteAllText(gameExecutable, "test-game");
         File.WriteAllText(Path.Combine(bundleDirectory, "native", "win-x64", "version.dll"), "insider-native");
-        File.WriteAllText(Path.Combine(bundleDirectory, "core", "Insider.Abstractions.dll"), "abstractions");
-        File.WriteAllText(Path.Combine(bundleDirectory, "core", "Insider.Loader.dll"), "loader");
-        File.WriteAllText(Path.Combine(bundleDirectory, "core", "Insider.Bootstrap.dll"), "bootstrap");
+        var managedFiles = new[]
+        {
+            "Insider.Abstractions.dll",
+            "Insider.Loader.dll",
+            "Insider.Bootstrap.dll",
+            "Insider.Hooking.dll",
+            "Mono.Cecil.dll",
+            "Mono.Cecil.Mdb.dll",
+            "Mono.Cecil.Pdb.dll",
+            "Mono.Cecil.Rocks.dll",
+            "MonoMod.Backports.dll",
+            "MonoMod.Core.dll",
+            "MonoMod.Iced.dll",
+            "MonoMod.ILHelpers.dll",
+            "MonoMod.RuntimeDetour.dll",
+            "MonoMod.Utils.dll",
+            "System.Reflection.Emit.ILGeneration.dll",
+            "System.Reflection.Emit.Lightweight.dll",
+        };
+        foreach (var file in managedFiles)
+        {
+            File.WriteAllText(Path.Combine(bundleDirectory, "core", file), file);
+        }
 
         if (withExistingProxy)
         {
@@ -796,10 +866,11 @@ public sealed class OptionalDependencyPlugin : IInsiderPlugin
 
 internal sealed class TestContext : IInsiderContext
 {
-    public TestContext()
+    public TestContext(IInsiderHookService? hooks = null)
     {
         CapturedLogger = new TestLogger();
         Logger = CapturedLogger;
+        Hooks = hooks ?? new NoOpHookService();
     }
 
     public string GameDirectory { get; } = "/game";
@@ -811,6 +882,23 @@ internal sealed class TestContext : IInsiderContext
     public TestLogger CapturedLogger { get; }
 
     public IInsiderRuntimeInfo Runtime { get; } = new TestRuntimeInfo();
+
+    public IInsiderHookService Hooks { get; }
+}
+
+internal sealed class NoOpHookService : IInsiderHookService
+{
+    public IDisposable Detour(MethodInfo target, Delegate replacement)
+    {
+        return new NoOpDetour();
+    }
+
+    private sealed class NoOpDetour : IDisposable
+    {
+        public void Dispose()
+        {
+        }
+    }
 }
 
 internal sealed class TestLogger : IInsiderLogger
@@ -832,4 +920,50 @@ internal sealed class TestRuntimeInfo : IInsiderRuntimeInfo
     public string Architecture { get; } = "x64";
 
     public string RuntimeVersion { get; } = "Test";
+}
+
+internal static class ManagedHookTarget
+{
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int Value()
+    {
+        return 7;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int Replacement()
+    {
+        return 42;
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.hooking", "Hooking", "1.0.0")]
+public sealed class HookingPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        var target = typeof(ManagedHookTarget).GetMethod(nameof(ManagedHookTarget.Value))
+            ?? throw new InvalidOperationException("Managed hook target was not found.");
+        _ = context.Hooks.Detour(target, (Func<int>)ManagedHookTarget.Replacement);
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.failing-hooking", "Failing Hooking", "1.0.0")]
+public sealed class FailingHookingPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        var target = typeof(ManagedHookTarget).GetMethod(nameof(ManagedHookTarget.Value))
+            ?? throw new InvalidOperationException("Managed hook target was not found.");
+        _ = context.Hooks.Detour(target, (Func<int>)ManagedHookTarget.Replacement);
+        throw new InvalidOperationException("Expected failure after applying a detour.");
+    }
+
+    public void Unload()
+    {
+    }
 }

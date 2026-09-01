@@ -9,4 +9,6 @@ public interface IInsiderContext
     IInsiderLogger Logger { get; }
 
     IInsiderRuntimeInfo Runtime { get; }
+
+    IInsiderHookService Hooks { get; }
 }

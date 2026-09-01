@@ -19,6 +19,19 @@ public sealed class InsiderInstaller
         new BundleFile("core/Insider.Abstractions.dll", "Insider/core/Insider.Abstractions.dll", "managed-core"),
         new BundleFile("core/Insider.Loader.dll", "Insider/core/Insider.Loader.dll", "managed-core"),
         new BundleFile("core/Insider.Bootstrap.dll", "Insider/core/Insider.Bootstrap.dll", "managed-core"),
+        new BundleFile("core/Insider.Hooking.dll", "Insider/core/Insider.Hooking.dll", "hooking-backend"),
+        new BundleFile("core/Mono.Cecil.dll", "Insider/core/Mono.Cecil.dll", "hooking-runtime"),
+        new BundleFile("core/Mono.Cecil.Mdb.dll", "Insider/core/Mono.Cecil.Mdb.dll", "hooking-runtime"),
+        new BundleFile("core/Mono.Cecil.Pdb.dll", "Insider/core/Mono.Cecil.Pdb.dll", "hooking-runtime"),
+        new BundleFile("core/Mono.Cecil.Rocks.dll", "Insider/core/Mono.Cecil.Rocks.dll", "hooking-runtime"),
+        new BundleFile("core/MonoMod.Backports.dll", "Insider/core/MonoMod.Backports.dll", "hooking-runtime"),
+        new BundleFile("core/MonoMod.Core.dll", "Insider/core/MonoMod.Core.dll", "hooking-runtime"),
+        new BundleFile("core/MonoMod.Iced.dll", "Insider/core/MonoMod.Iced.dll", "hooking-runtime"),
+        new BundleFile("core/MonoMod.ILHelpers.dll", "Insider/core/MonoMod.ILHelpers.dll", "hooking-runtime"),
+        new BundleFile("core/MonoMod.RuntimeDetour.dll", "Insider/core/MonoMod.RuntimeDetour.dll", "hooking-runtime"),
+        new BundleFile("core/MonoMod.Utils.dll", "Insider/core/MonoMod.Utils.dll", "hooking-runtime"),
+        new BundleFile("core/System.Reflection.Emit.ILGeneration.dll", "Insider/core/System.Reflection.Emit.ILGeneration.dll", "hooking-runtime"),
+        new BundleFile("core/System.Reflection.Emit.Lightweight.dll", "Insider/core/System.Reflection.Emit.Lightweight.dll", "hooking-runtime"),
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
