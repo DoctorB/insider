@@ -76,13 +76,13 @@ The first runtime backend implements `IInsiderHookService` through
 MonoMod.RuntimeDetour. The public surface creates direct managed method and
 instance-constructor detours from a `MethodBase` and replacement `Delegate`;
 construction applies the detour immediately and disposal removes it.
-Replacements use exact signatures, include `self` for reference-type instance
-members and `ref self` for value-type instance methods, and may prepend an
-original-call delegate to wrap existing behavior. Constructors use `void`
-signatures. Multiple detours can form a continuation chain, but every handle
-remains independently owned and removable. MonoMod types, static and value-type
-constructors, IL hooks, HookGen, detour ordering, and native detours are not
-exposed by the initial contract.
+Replacements use exact signatures, preserve declared by-reference parameters,
+include `self` for reference-type instance members and `ref self` for value-type
+instance methods, and may prepend an original-call delegate to wrap existing
+behavior. Constructors use `void` signatures. Multiple detours can form a
+continuation chain, but every handle remains independently owned and removable.
+MonoMod types, static and value-type constructors, IL hooks, HookGen, detour
+ordering, and native detours are not exposed by the initial contract.
 
 The public signature and lifecycle rules are documented with working patterns
 in the [managed hooking guide](hooking.md).

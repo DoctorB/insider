@@ -128,10 +128,11 @@ failed `Load()`.
 Signatures are exact. A direct replacement receives the target arguments. An
 instance-method or constructor replacement receives the declaring type as
 `self` before those arguments. Constructors use a `void` replacement and
-original-call delegate. To call the original behavior, prepend a delegate with
-that same return type and parameter list, as in the example above. Call this
-delegate only synchronously while the replacement is executing; do not store
-it.
+original-call delegate. Declared `ref` and `out` parameters remain by reference
+in both delegate signatures. To call the original behavior, prepend a delegate
+with that same return type and parameter list, as in the example above. Call
+this delegate only synchronously while the replacement is executing; do not
+store it.
 
 Value-type instance methods use `ref self`; both the replacement and its
 original-call delegate must declare it exactly:

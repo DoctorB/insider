@@ -15,7 +15,8 @@ public interface IInsiderHookService
     /// <param name="replacement">
     /// A delegate with the target signature, including <c>self</c> for instance
     /// methods and constructors. Value-type methods receive <c>self</c> by
-    /// reference. The signature may be preceded by an original-call delegate.
+    /// reference, and declared by-reference parameters remain by reference. The
+    /// signature may be preceded by an original-call delegate.
     /// </param>
     /// <returns>A handle that removes the detour when disposed.</returns>
     IDisposable Detour(MethodBase target, Delegate replacement);

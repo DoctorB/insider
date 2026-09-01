@@ -162,6 +162,13 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
 
     private static string FormatType(Type type)
     {
+        if (type.IsByRef)
+        {
+            var elementType = type.GetElementType()
+                ?? throw new ArgumentException("By-reference type has no element type.", nameof(type));
+            return $"byref {FormatType(elementType)}";
+        }
+
         return type.FullName ?? type.Name;
     }
 }

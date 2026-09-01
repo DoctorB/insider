@@ -60,3 +60,6 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A canonical managed hooking guide with complete signature mappings, lifecycle
   rules, Unity assembly-loading guidance, and examples for every supported
   detour form.
+- Explicit `ref` and `out` parameter support with readable by-reference
+  diagnostics, managed mutation/restoration tests, and real Unity Mono
+  coverage.

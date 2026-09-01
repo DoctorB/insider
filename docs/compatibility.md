@@ -44,15 +44,16 @@ the managed bootstrap, plugin discovery, plugin load, process-exit unload, and
 persistent native and managed logs. On 2026-09-01 the same fixture also applied
 a MonoMod.RuntimeDetour managed hook inside Unity Mono and observed the expected
 replacement result during plugin load and unload. The fixture now also wraps a
-reference-type instance method, receives its `self` argument, and invokes the
-original method synchronously. A plugin-owned value-type method is also wrapped
-with `ref self`; the original mutation remains visible in the struct. Finally,
-the fixture waits for the `Assembly-CSharp` instance loaded by Unity, detours a
-method without referencing the game assembly at compile time, composes two
-continuations on that target, and observes the changed result from a direct
-player call. It then disposes both detour handles while the player remains
-active and observes a later direct call return the original value, proving live
-chain removal for this controlled player.
+method with `ref` and `out` parameters and observes both mutations through its
+original-call delegate. A reference-type instance method receives its `self`
+argument and invokes the original method synchronously. A plugin-owned
+value-type method is also wrapped with `ref self`; the original mutation remains
+visible in the struct. Finally, the fixture waits for the `Assembly-CSharp`
+instance loaded by Unity, detours a method without referencing the game assembly
+at compile time, composes two continuations on that target, and observes the
+changed result from a direct player call. It then disposes both detour handles
+while the player remains active and observes a later direct call return the
+original value, proving live chain removal for this controlled player.
 
 The fixture is repeatable through `eng/Test-UnityMonoSmoke.ps1`, but it is not
 run in GitHub Actions because hosted execution would require a Unity Editor and

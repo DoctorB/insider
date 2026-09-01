@@ -23,6 +23,7 @@ internal static class Program
             ("contains plugin load failures", ContainsLoadFailure),
             ("scopes plugin log messages by id", ScopesPluginLogMessagesById),
             ("applies and removes a managed detour", AppliesAndRemovesManagedDetour),
+            ("detours a method with ref and out parameters", DetoursMethodWithRefAndOutParameters),
             ("detours an instance method and calls the original", DetoursInstanceMethodAndCallsOriginal),
             ("detours a value-type instance method with ref self", DetoursValueTypeInstanceMethodWithRefSelf),
             ("detours an instance constructor and calls the original", DetoursInstanceConstructorAndCallsOriginal),
@@ -147,6 +148,28 @@ internal static class Program
         Assert(instance.Add(4) == 7, "Disposing the instance detour did not restore the target method.");
     }
 
+    private static void DetoursMethodWithRefAndOutParameters()
+    {
+        var service = new RuntimeDetourHookService();
+        var target = GetRequiredMethod(typeof(ManagedRefOutHookTarget), nameof(ManagedRefOutHookTarget.TryTransform));
+        var value = 2;
+
+        Assert(ManagedRefOutHookTarget.TryTransform(ref value, out var output), "Ref/out hook target returned false.");
+        Assert(value == 7 && output == 14, "Ref/out hook target did not begin with its original values.");
+
+        value = 2;
+        using (service.Detour(target, (ManagedRefOutReplacement)ManagedRefOutHookTarget.Replacement))
+        {
+            Assert(ManagedRefOutHookTarget.TryTransform(ref value, out output), "Ref/out detour returned false.");
+            Assert(value == 8, "Ref/out detour did not preserve the ref mutation.");
+            Assert(output == 26, "Ref/out detour did not preserve and extend the out value.");
+        }
+
+        value = 2;
+        Assert(ManagedRefOutHookTarget.TryTransform(ref value, out output), "Restored ref/out hook target returned false.");
+        Assert(value == 7 && output == 14, "Disposing the ref/out detour did not restore the target method.");
+    }
+
     private static void DetoursInstanceConstructorAndCallsOriginal()
     {
         var service = new RuntimeDetourHookService();
@@ -189,6 +212,7 @@ internal static class Program
         var service = new RuntimeDetourHookService();
         var staticTarget = GetRequiredMethod(typeof(ManagedHookTarget), nameof(ManagedHookTarget.Value));
         var instanceTarget = GetRequiredMethod(typeof(ManagedInstanceHookTarget), nameof(ManagedInstanceHookTarget.Add));
+        var refOutTarget = GetRequiredMethod(typeof(ManagedRefOutHookTarget), nameof(ManagedRefOutHookTarget.TryTransform));
         var valueTypeTarget = GetRequiredMethod(typeof(ManagedValueHookTarget), nameof(ManagedValueHookTarget.Add));
         var valueTypeConstructorTarget = GetRequiredConstructor(typeof(ManagedValueHookTarget), typeof(int));
         var staticConstructorTarget = typeof(ManagedStaticConstructorHookTarget).TypeInitializer
@@ -198,6 +222,11 @@ internal static class Program
             () => service.Detour(staticTarget, (Func<int, int>)ManagedHookTarget.ReplacementWithArgument));
         AssertThrows<ArgumentException>(
             () => service.Detour(instanceTarget, (Func<int, int>)ManagedInstanceHookTarget.ReplacementWithoutSelf));
+        var refOutException = AssertThrows<ArgumentException>(
+            () => service.Detour(refOutTarget, (Func<bool>)ManagedRefOutHookTarget.InvalidReplacement));
+        Assert(
+            refOutException.Message.Contains("byref System.Int32", StringComparison.Ordinal),
+            "By-reference signature mismatch did not use the readable diagnostic format.");
         AssertThrows<ArgumentException>(
             () => service.Detour(valueTypeTarget, (Func<ManagedValueHookTarget, int>)ManagedValueHookTarget.InvalidReplacement));
         AssertThrows<NotSupportedException>(
@@ -540,16 +569,16 @@ internal static class Program
         }
     }
 
-    private static void AssertThrows<TException>(Action action)
+    private static TException AssertThrows<TException>(Action action)
         where TException : Exception
     {
         try
         {
             action();
         }
-        catch (TException)
+        catch (TException exception)
         {
-            return;
+            return exception;
         }
 
         throw new InvalidOperationException($"Expected {typeof(TException).Name} was not thrown.");
@@ -1089,6 +1118,41 @@ internal static class ManagedHookTarget
 internal delegate int ManagedHookOriginal();
 
 internal delegate int ManagedHookReplacement(ManagedHookOriginal original);
+
+internal delegate bool ManagedRefOutOriginal(ref int value, out int output);
+
+internal delegate bool ManagedRefOutReplacement(
+    ManagedRefOutOriginal original,
+    ref int value,
+    out int output);
+
+internal static class ManagedRefOutHookTarget
+{
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static bool TryTransform(ref int value, out int output)
+    {
+        value += 5;
+        output = value * 2;
+        return true;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static bool Replacement(
+        ManagedRefOutOriginal original,
+        ref int value,
+        out int output)
+    {
+        value++;
+        var result = original(ref value, out output);
+        output += 10;
+        return result;
+    }
+
+    public static bool InvalidReplacement()
+    {
+        return false;
+    }
+}
 
 internal delegate int ManagedInstanceOriginal(ManagedInstanceHookTarget self, int value);
 

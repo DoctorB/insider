@@ -39,6 +39,12 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
             ?? throw new InvalidOperationException("Unity smoke hook target was not found.");
         _ = context.Hooks.Detour(target, (Func<int>)HookReplacement);
 
+        var refOutTarget = typeof(UnityMonoSmokePlugin).GetMethod(
+            nameof(RefOutHookTarget),
+            BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException("Unity smoke ref/out hook target was not found.");
+        _ = context.Hooks.Detour(refOutTarget, (RefOutReplacement)RefOutHookReplacement);
+
         var instanceTarget = typeof(UnityMonoSmokePlugin).GetMethod(
             nameof(InstanceHookTarget),
             BindingFlags.NonPublic | BindingFlags.Instance)
@@ -55,6 +61,14 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
         if (hookedValue != 42)
         {
             throw new InvalidOperationException($"Unity smoke detour returned {hookedValue}; expected 42.");
+        }
+
+        var refOutValue = 2;
+        var refOutSucceeded = RefOutHookTarget(ref refOutValue, out var refOutOutput);
+        if (!refOutSucceeded || refOutValue != 8 || refOutOutput != 26)
+        {
+            throw new InvalidOperationException(
+                $"Unity smoke ref/out detour returned {refOutSucceeded}, {refOutValue}, {refOutOutput}; expected true, 8, 26.");
         }
 
         var instanceHookedValue = InstanceHookTarget(2);
@@ -77,6 +91,8 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
             $"Backend={context.Runtime.Backend}{Environment.NewLine}" +
             $"Architecture={context.Runtime.Architecture}{Environment.NewLine}" +
             $"HookedValue={hookedValue}{Environment.NewLine}" +
+            $"RefOutValue={refOutValue}{Environment.NewLine}" +
+            $"RefOutOutput={refOutOutput}{Environment.NewLine}" +
             $"InstanceHookedValue={instanceHookedValue}{Environment.NewLine}" +
             $"ValueTypeHookedValue={valueTypeHookedValue}{Environment.NewLine}" +
             $"ValueTypeState={valueTypeInstance.Value}{Environment.NewLine}" +
@@ -98,10 +114,14 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
         }
 
         var valueTypeInstance = new ValueTypeHookTarget(5);
+        var refOutValue = 2;
+        _ = RefOutHookTarget(ref refOutValue, out var refOutOutput);
         File.WriteAllText(
             Path.Combine(_insiderDirectory, "unity-smoke-plugin-unloaded.txt"),
             $"unloaded{Environment.NewLine}" +
             $"HookedValue={HookTarget()}{Environment.NewLine}" +
+            $"RefOutValue={refOutValue}{Environment.NewLine}" +
+            $"RefOutOutput={refOutOutput}{Environment.NewLine}" +
             $"InstanceHookedValue={InstanceHookTarget(2)}{Environment.NewLine}" +
             $"ValueTypeHookedValue={valueTypeInstance.Add(2)}{Environment.NewLine}" +
             $"ValueTypeState={valueTypeInstance.Value}");
@@ -117,6 +137,26 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
     private static int HookReplacement()
     {
         return 42;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static bool RefOutHookTarget(ref int value, out int output)
+    {
+        value += 5;
+        output = value * 2;
+        return true;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static bool RefOutHookReplacement(
+        RefOutOriginal original,
+        ref int value,
+        out int output)
+    {
+        value++;
+        var result = original(ref value, out output);
+        output += 10;
+        return result;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -281,6 +321,13 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
     }
 
     private delegate int InstanceOriginal(UnityMonoSmokePlugin self, int value);
+
+    private delegate bool RefOutOriginal(ref int value, out int output);
+
+    private delegate bool RefOutReplacement(
+        RefOutOriginal original,
+        ref int value,
+        out int output);
 
     private delegate int InstanceReplacement(
         InstanceOriginal original,

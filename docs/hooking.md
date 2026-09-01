@@ -35,6 +35,9 @@ The signature mapping is:
 | `R Type.Method(A)` on a struct | `R Replacement(ref Type self, A)` |
 | `Type.ctor(A)` on a class | `void Replacement(Type self, A)` |
 
+Declared `ref` and `out` parameters keep their by-reference position in every
+replacement and original-call delegate.
+
 Any replacement may prepend an original-call delegate with the same return type
 and parameters shown in the table. That delegate advances to the next detour in
 the chain and eventually to the original member.
@@ -103,6 +106,36 @@ private static int Replacement(ComputeOriginal original, int value)
 
 Invoke `original` synchronously while the replacement is running. Do not store
 the delegate or invoke it later from another thread.
+
+## Ref and out parameters
+
+Methods that mutate arguments in place or follow the `TryGet` pattern can be
+wrapped without copying their values. Mirror each `ref` and `out` parameter in
+both delegate types and pass the modifiers again when calling the original:
+
+```csharp
+private delegate bool TransformOriginal(ref int value, out int output);
+private delegate bool TransformHook(
+    TransformOriginal original,
+    ref int value,
+    out int output);
+
+private static bool Replacement(
+    TransformOriginal original,
+    ref int value,
+    out int output)
+{
+    value++;
+    var succeeded = original(ref value, out output);
+    output += 10;
+    return succeeded;
+}
+```
+
+At the CLR level, `ref` and `out` are both managed by-reference parameter types.
+Use the same modifier as the target in plugin source so intent and definite
+assignment remain clear. Insider's mismatch diagnostics render either form as
+`byref ElementType`.
 
 ## Reference-type instance methods
 
@@ -321,6 +354,7 @@ with an ambiguous-match exception.
 The current managed backend supports:
 
 - Static methods.
+- Declared `ref` and `out` parameters.
 - Reference-type instance methods with `self`.
 - Value-type instance methods with `ref self`.
 - Reference-type instance constructors.
