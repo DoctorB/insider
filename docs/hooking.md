@@ -1,8 +1,8 @@
-# Managed hooking guide
+# Runtime hooking guide
 
 This document is the practical reference for Insider's managed hooking API. It
-covers every behavior currently exposed by `IInsiderHookService`, with examples
-that can be adapted to a plugin.
+covers managed detours and IL hooks exposed by `IInsiderHookService`, with
+examples that can be adapted to a plugin.
 
 The backend is currently experimental and targets Windows x64 games using the
 Unity Mono scripting backend. IL2CPP is not supported.
@@ -11,7 +11,19 @@ Types such as `GameRules`, `Enemy`, `CombatStats`, and `Actor` in the snippets
 are illustrative game types; replace them with the exact types from the target
 assembly.
 
-## The contract
+The service has two operations:
+
+```csharp
+IDisposable detour = context.Hooks.Detour(target, replacement);
+IDisposable ilHook = context.Hooks.ModifyIl(target, manipulator);
+```
+
+Both are active when the call returns, both produce independently removable
+handles, and both are owned by the plugin context. Use `Detour` when a delegate
+can replace or wrap the whole method. Use `ModifyIl` when a precise change must
+be made inside the original method body.
+
+## Managed detour contract
 
 Plugins create detours through the context supplied to `Load`:
 
@@ -376,20 +388,143 @@ both restores `7`.
 Do not depend on execution order between different plugins. Insider guarantees
 ownership and independent removal, but does not define inter-plugin ordering.
 
+## IL hooks
+
+`ModifyIl` runs a callback against MonoMod's `ILContext` and installs the
+resulting rewritten body:
+
+```csharp
+using System;
+using System.Reflection;
+using Mono.Cecil.Cil;
+using MonoMod.Cil;
+
+private IDisposable? _ilHook;
+
+public void Load(IInsiderContext context)
+{
+    var target = typeof(GameRules).GetMethod(
+        nameof(GameRules.Compute),
+        BindingFlags.Public | BindingFlags.Static,
+        binder: null,
+        types: new[] { typeof(int) },
+        modifiers: null)
+        ?? throw new InvalidOperationException("Target method not found.");
+
+    _ilHook = context.Hooks.ModifyIl(target, RewriteCompute);
+}
+
+private static void RewriteCompute(ILContext il)
+{
+    var cursor = new ILCursor(il);
+    if (!cursor.TryGotoNext(
+        MoveType.Before,
+        instruction => instruction.MatchLdcI4(7)))
+    {
+        throw new InvalidOperationException(
+            "Expected Compute constant was not found; the game may have changed.");
+    }
+
+    cursor.Remove();
+    cursor.Emit(OpCodes.Ldc_I4, 42);
+}
+```
+
+This example replaces the first integer constant `7` with `42`. Real game IL
+should be matched with enough surrounding instructions to identify one stable
+location; a single constant is intentionally only a minimal example. Fail the
+manipulator when the expected pattern is absent instead of silently patching a
+different location after a game update.
+
+The callback has the complete MonoMod/Cecil surface. It can inspect and edit
+instructions, locals, branches, labels, and exception handlers, and it can emit
+calls or delegates. For example, a static callback can be inserted immediately
+before every return without consuming a non-void return value already on the
+evaluation stack:
+
+```csharp
+private static void AddReturnCallbacks(ILContext il)
+{
+    var cursor = new ILCursor(il);
+    while (cursor.TryGotoNext(
+        MoveType.Before,
+        instruction => instruction.OpCode == OpCodes.Ret))
+    {
+        cursor.EmitDelegate<Action>(OnReturning);
+        cursor.Index++;
+    }
+}
+
+private static void OnReturning()
+{
+    // Keep injected callbacks small and safe for the target thread.
+}
+```
+
+An IL hook is lower level than a detour. The manipulator is responsible for
+leaving valid IL, a balanced evaluation stack, valid branch targets, and valid
+exception regions. Insider validates the reflected target and owns the runtime
+hook, but it cannot prove the semantic correctness of arbitrary emitted IL.
+
+### Manipulator lifetime and repeatability
+
+MonoMod may invoke a manipulator again whenever another IL hook is added to or
+removed from the same target. A manipulator must therefore:
+
+- produce the same edit whenever it receives the same input body;
+- keep side effects out of the manipulation callback;
+- avoid storing `ILContext`, `ILCursor`, Cecil instructions, or labels after the
+  callback returns;
+- fail clearly when its expected pattern is absent;
+- avoid depending on execution order between different plugins.
+
+Injected delegates may refer to static methods or deliberately capture plugin
+state. Any captured state remains reachable while the IL hook is active, so the
+handle must be removed before that state is considered unloaded.
+
+### Multiple IL hooks and detours
+
+Multiple IL hooks may target the same method. Each manipulator contributes to
+the rebuilt body, and disposing one handle rebuilds the target without that
+manipulator while leaving the others active. Insider does not expose priority or
+ordering controls, so manipulators should locate semantic instruction patterns
+instead of relying on absolute indexes or another plugin's output.
+
+Managed detours and IL hooks may also target the same method. Insider owns and
+removes both kinds independently, but it deliberately makes no promise about
+cross-plugin ordering. Prefer one technique per target inside a plugin unless
+the combination is essential and can be validated against the exact game
+version.
+
+### IL target validation
+
+`ModifyIl` accepts managed methods and instance constructors, including
+value-type instance constructors, only when reflection exposes a readable IL
+body. It rejects abstract, external, P/Invoke, runtime-provided, generic, and
+variable-argument targets, plus static constructors. A multicast manipulator is
+also rejected because its rebuild and failure semantics would be ambiguous.
+
+`ILContext` and Cecil are advanced types supplied by Insider's pinned MonoMod
+runtime. Compile against the versions selected by `Insider.Abstractions`, but
+do not redistribute `MonoMod.*`, `Mono.Cecil*`, or
+`Insider.Abstractions.dll` with a plugin. The loader owns those assemblies and
+all plugins must use the process-wide copies.
+
 ## Loader ownership and failure cleanup
 
-Every `context.Hooks.Detour` call is scoped to the plugin that made it:
+Every `context.Hooks.Detour` and `context.Hooks.ModifyIl` call is scoped to the
+plugin that made it:
 
 - A successful plugin may dispose a handle whenever it no longer needs the hook.
-- Remaining hooks stay active during the plugin's `Unload()` callback and are
-  removed immediately afterward.
+- Remaining detours and IL hooks stay active during the plugin's `Unload()`
+  callback and are removed immediately afterward.
 - If `Load()` throws after creating hooks, Insider removes those hooks.
 - Removing one plugin's hooks does not remove another plugin's nodes from the
   same target chain.
 
 Handles become disposed only after the runtime confirms removal. A removal
 failure leaves the handle tracked and retryable instead of silently orphaning a
-possibly active detour. Loader cleanup attempts every owned handle even if one
+possibly active hook. Loader cleanup attempts every owned handle even if one
 fails, then reports the failures together.
 
 Hooks created directly through third-party APIs are outside this ownership
@@ -401,15 +536,15 @@ Contract validation happens before runtime patching:
 
 - Invalid or mismatched signatures throw `ArgumentException`.
 - Unsupported targets throw `NotSupportedException`.
-- A backend failure while applying or removing a valid detour throws
+- A backend failure while applying or removing a valid detour or IL hook throws
   `InsiderHookException` and retains the original exception in
   `InnerException`.
 
-Signature errors identify the reflected target, the actual delegate signature,
-and the required signature. Generic, array, pointer, and managed by-reference
-types are formatted without leaking a MonoMod type into plugin code. A
-replacement delegate must also contain exactly one invocation target;
-multicast delegates are rejected because their hook semantics would be
+Detour signature errors identify the reflected target, the actual delegate
+signature, and the required signature. Generic, array, pointer, and managed
+by-reference types are formatted without leaking a MonoMod type into detour
+signatures. A replacement delegate must also contain exactly one invocation
+target; multicast delegates are rejected because their hook semantics would be
 ambiguous.
 
 ## Hooking late Unity assemblies
@@ -487,7 +622,7 @@ with an ambiguous-match exception.
 
 ## Supported surface and current limits
 
-The current managed backend supports:
+The current managed detour backend supports:
 
 - Static methods.
 - Declared `ref`, `out`, and `in` parameters.
@@ -502,14 +637,25 @@ The current managed backend supports:
   cleanup.
 - Stable `InsiderHookException` wrapping runtime apply and removal failures.
 
+The IL backend supports:
+
+- Managed methods and instance constructors with readable IL bodies.
+- The complete MonoMod `ILContext`, `ILCursor`, and Cecil instruction surface.
+- Multiple independently removable manipulators on one target.
+- Coexistence with managed detours on the same target without an ordering
+  guarantee.
+- Idempotent early removal, retryable failures, reverse-order plugin cleanup,
+  and the same stable `InsiderHookException` boundary as detours.
+
 It deliberately rejects or does not expose:
 
 - Abstract methods.
 - Open and closed generic methods, and members declared on generic types.
 - Multicast replacement delegates.
 - Variable-argument methods.
-- Static constructors and value-type constructors.
-- IL rewriting, HookGen, ordering controls, and native detours.
+- Static constructors; value-type constructors remain unsupported by `Detour`
+  but may be rewritten through `ModifyIl` when they expose a body.
+- HookGen, ordering controls, and native detours.
 - IL2CPP targets.
 
 See [compatibility.md](compatibility.md) for the evidence behind current support
@@ -518,5 +664,5 @@ claims and [testing.md](testing.md) for the exact automated and Unity fixtures.
 ## Documentation maintenance
 
 This is the canonical usage guide for `IInsiderHookService`. Any change to the
-public hooking contract, signature rules, lifecycle, supported targets, or
-runtime evidence must update this document in the same pull request.
+public hooking contract, signature or IL rules, lifecycle, supported targets,
+or runtime evidence must update this document in the same pull request.

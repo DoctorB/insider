@@ -43,7 +43,8 @@ argument and unsupported-operation exceptions.
 
 Static constructors, value-type constructors, variable-argument methods, IL
 hooks, HookGen, native detours, ordering controls, and third-party types are
-outside this first public contract.
+outside this first public contract. IL hooks are added later by
+[ADR 0008](0008-il-hook-contract.md) without changing the detour signature.
 
 ## Consequences
 

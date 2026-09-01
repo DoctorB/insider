@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using MonoMod.Cil;
 using MonoMod.RuntimeDetour;
 
 namespace Insider.Hooking;
@@ -18,32 +19,7 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
             throw new ArgumentNullException(nameof(replacement));
         }
 
-        if (target is not MethodInfo && target is not ConstructorInfo)
-        {
-            throw new NotSupportedException("Only managed methods and constructors can be detoured.");
-        }
-
-        if (target is ConstructorInfo constructor && constructor.IsStatic)
-        {
-            throw new NotSupportedException("Static constructors are not supported by the Insider hook contract.");
-        }
-
-        if (target.IsAbstract)
-        {
-            throw new ArgumentException("Abstract methods cannot be detoured.", nameof(target));
-        }
-
-        if (target.ContainsGenericParameters)
-        {
-            throw new ArgumentException("Open generic methods cannot be detoured.", nameof(target));
-        }
-
-        if ((target is MethodInfo method && method.IsGenericMethod) ||
-            (target.DeclaringType?.IsGenericType ?? false))
-        {
-            throw new NotSupportedException(
-                "Generic methods and members declared on generic types are not supported by the current RuntimeDetour backend.");
-        }
+        ValidateTarget(target, requireIlBody: false);
 
         if (replacement.Method.ContainsGenericParameters)
         {
@@ -55,23 +31,112 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
             throw new ArgumentException("A replacement delegate must contain exactly one invocation target.", nameof(replacement));
         }
 
-        if ((target.CallingConvention & CallingConventions.VarArgs) != 0)
-        {
-            throw new NotSupportedException("Variable-argument methods are not supported by the Insider hook contract.");
-        }
-
         ValidateSignature(target, replacement);
 
         var targetName = FormatTarget(target);
         try
         {
-            return new RuntimeDetourHandle(new Hook(target, replacement), targetName);
+            return new RuntimeHookHandle(new Hook(target, replacement), targetName, "managed detour");
         }
         catch (Exception exception)
         {
             throw new InsiderHookException(
                 $"Could not apply managed detour to '{targetName}'.",
                 exception);
+        }
+    }
+
+    public IDisposable ModifyIl(MethodBase target, Action<ILContext> manipulator)
+    {
+        if (target is null)
+        {
+            throw new ArgumentNullException(nameof(target));
+        }
+
+        if (manipulator is null)
+        {
+            throw new ArgumentNullException(nameof(manipulator));
+        }
+
+        ValidateTarget(target, requireIlBody: true);
+
+        if (manipulator.GetInvocationList().Length != 1)
+        {
+            throw new ArgumentException("An IL manipulator must contain exactly one invocation target.", nameof(manipulator));
+        }
+
+        var targetName = FormatTarget(target);
+        ILContext.Manipulator backendManipulator = context => manipulator(context);
+        try
+        {
+            return new RuntimeHookHandle(new ILHook(target, backendManipulator), targetName, "IL hook");
+        }
+        catch (Exception exception)
+        {
+            throw new InsiderHookException(
+                $"Could not apply IL hook to '{targetName}'.",
+                exception);
+        }
+    }
+
+    private static void ValidateTarget(MethodBase target, bool requireIlBody)
+    {
+        if (target is not MethodInfo && target is not ConstructorInfo)
+        {
+            throw new NotSupportedException("Only managed methods and constructors can be hooked.");
+        }
+
+        if (target is ConstructorInfo constructor && constructor.IsStatic)
+        {
+            throw new NotSupportedException("Static constructors are not supported by the Insider hook contract.");
+        }
+
+        if (target.IsAbstract)
+        {
+            throw new ArgumentException("Abstract methods cannot be hooked.", nameof(target));
+        }
+
+        if (target.ContainsGenericParameters)
+        {
+            throw new ArgumentException("Open generic methods cannot be hooked.", nameof(target));
+        }
+
+        if ((target is MethodInfo method && method.IsGenericMethod) ||
+            (target.DeclaringType?.IsGenericType ?? false))
+        {
+            throw new NotSupportedException(
+                "Generic methods and members declared on generic types are not supported by the current RuntimeDetour backend.");
+        }
+
+        if ((target.CallingConvention & CallingConventions.VarArgs) != 0)
+        {
+            throw new NotSupportedException("Variable-argument methods are not supported by the Insider hook contract.");
+        }
+
+        if (requireIlBody)
+        {
+            ValidateIlBody(target);
+        }
+    }
+
+    private static void ValidateIlBody(MethodBase target)
+    {
+        MethodBody? body;
+        try
+        {
+            body = target.GetMethodBody();
+        }
+        catch (Exception exception) when (exception is InvalidOperationException || exception is NotSupportedException)
+        {
+            throw new NotSupportedException(
+                $"Target '{FormatTarget(target)}' does not expose a readable managed IL body.",
+                exception);
+        }
+
+        if (body is null)
+        {
+            throw new NotSupportedException(
+                $"Target '{FormatTarget(target)}' does not have a managed IL body to rewrite.");
         }
     }
 
@@ -283,16 +348,18 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
         return $"({string.Join(", ", names)})";
     }
 
-    private sealed class RuntimeDetourHandle : IDisposable
+    private sealed class RuntimeHookHandle : IDisposable
     {
         private readonly object _sync = new object();
+        private readonly string _hookKind;
         private readonly string _targetName;
-        private Hook? _hook;
+        private IDisposable? _hook;
 
-        public RuntimeDetourHandle(Hook hook, string targetName)
+        public RuntimeHookHandle(IDisposable hook, string targetName, string hookKind)
         {
             _hook = hook ?? throw new ArgumentNullException(nameof(hook));
             _targetName = targetName ?? throw new ArgumentNullException(nameof(targetName));
+            _hookKind = hookKind ?? throw new ArgumentNullException(nameof(hookKind));
         }
 
         public void Dispose()
@@ -312,7 +379,7 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
                 catch (Exception exception)
                 {
                     throw new InsiderHookException(
-                        $"Could not remove managed detour from '{_targetName}'.",
+                        $"Could not remove {_hookKind} from '{_targetName}'.",
                         exception);
                 }
             }

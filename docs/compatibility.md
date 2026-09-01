@@ -57,7 +57,11 @@ instance loaded by Unity, detours a method without referencing the game assembly
 at compile time, composes two continuations on that target, and observes the
 changed result from a direct player call. It then disposes both detour handles
 while the player remains active and observes a later direct call return the
-original value, proving live chain removal for this controlled player.
+original value, proving live chain removal for this controlled player. The same
+fixture uses `ModifyIl` on a second `Assembly-CSharp` method, changes its direct
+result from `7` to `42`, removes the IL hook while the player remains active,
+and observes `7` again. Loading that plugin also verifies that MonoMod/Cecil
+contract assemblies are resolved from the host-owned `Insider/core` directory.
 
 The fixture is repeatable through `eng/Test-UnityMonoSmoke.ps1`, but it is not
 run in GitHub Actions because hosted execution would require a Unity Editor and
@@ -65,11 +69,16 @@ license. One controlled player does not establish compatibility with other
 Unity releases, game-specific native imports, anti-cheat systems, or modified
 Mono runtimes, so the backend remains experimental.
 
+The managed suite separately verifies IL chains, detour coexistence,
+value-type constructor rewriting, validation, loader ownership, and retryable
+cleanup. This evidence keeps IL hooking within the already experimental Unity
+Mono status; it does not establish broad game or Unity-version compatibility.
+
 ## Managed dependency constraints
 
 Unity Mono plugins share the game's application domain. Insider resolves exact
-managed assembly identities from `Insider/plugins` and its `dependencies`
-subtree, but it cannot guarantee side-by-side isolation for two versions with
+managed assembly identities from `Insider/core`, `Insider/plugins`, and the
+plugin `dependencies` subtree, but it cannot guarantee side-by-side isolation for two versions with
 the same simple assembly name. Duplicate candidates, conflicting versions, and
 conflicts with an already loaded game assembly fail closed and are written to
 `Insider/logs/insider.log`.

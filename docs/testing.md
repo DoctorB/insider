@@ -19,7 +19,10 @@ continuation after a removal failure, instance-method and instance-constructor
 detours with original calls, independently targeted virtual base and override
 implementations, value-type instance methods with `ref self`, multi-detour
 chains, selective removal, cross-plugin ownership isolation, installation
-manifests, hash verification, and proxy backup restoration.
+manifests, hash verification, and proxy backup restoration. The same suite also
+covers IL instruction replacement and restoration, multiple selectively removed
+manipulators, detour coexistence, value-type constructor rewriting, target and
+manipulator validation, stable failures, plugin ownership, and retryable cleanup.
 
 ### Managed bootstrap integration fixture
 
@@ -28,7 +31,9 @@ loaded through a real managed bootstrap session. The test verifies runtime
 detection, directory creation, assembly discovery, plugin context delivery,
 exact dependency resolution, load and unload callbacks, failure-closed behavior
 for missing or conflicting dependencies and unsupported runtimes, and
-persistent bootstrap logging.
+persistent bootstrap logging. A separate case proves that a public host
+dependency can be resolved from `Insider/core` without being copied into the
+plugin dependency tree.
 
 The fixture is test-only and is never included in release packages.
 
@@ -58,6 +63,21 @@ the expected diagnostic instead of crashing the host process.
 
 The fixture contains no Unity or Mono code and is never included in release
 packages.
+
+### IL-hook test phase
+
+The managed test phase covers instruction replacement through `ILCursor` and
+observable restoration, multiple manipulators with selective removal,
+coexistence with a detour, normal and failed-load cleanup, retry after simulated
+removal failure, unsupported targets, multicast manipulators, and stable
+`InsiderHookException` diagnostics. The suite currently contains 51 passing
+tests.
+
+The real-player phase rewrites a method on Unity's effective
+`Assembly-CSharp`, observes `42` through a direct player call, disposes the
+handle while the player remains active, and then observes the original `7`.
+This is evidence for the controlled Unity fixture, not a general compatibility
+claim.
 
 ### Windows package smoke test
 
@@ -100,11 +120,14 @@ The test succeeds only when all of these observations are present:
 13. the plugin disposes both game-hook handles while the player remains active;
 14. the player directly invokes the same method again and observes the restored
    value `7`;
-15. the test plugin writes its load marker and scoped log messages;
-16. the other plugin-owned detours remain active through the plugin's
+15. the plugin applies an IL hook to a second `Assembly-CSharp` method and the
+    player directly observes `42` instead of the original `7`;
+16. disposing that IL-hook handle restores `7` while the player remains active;
+17. the test plugin writes its load marker and scoped log messages;
+18. the other plugin-owned detours remain active through the plugin's
     `Unload()` callback;
-17. the managed log contains no error entries;
-18. the installed files still pass the CLI status check.
+19. the managed log contains no error entries;
+20. the installed files still pass the CLI status check.
 
 This test is local rather than part of GitHub Actions because it needs an
 installed and licensed Unity Editor. Its generated project state, package, and
@@ -118,7 +141,8 @@ game, but it does not validate game-specific behavior, Unity main-thread APIs,
 hooks against UnityEngine or production game code, ordered chains or chains
 involving multiple real plugins, constructor hooks inside Unity, complex method
 signatures beyond those listed above, removal-failure retry paths inside Unity,
-value-type constructors, anti-cheat interaction, or other Unity/Mono versions.
+value-type constructors, complex IL control flow, anti-cheat interaction, or other
+Unity/Mono versions.
 Broader
 real-player evidence is still required before compatibility can move from
 experimental to supported.

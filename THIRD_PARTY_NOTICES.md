@@ -17,9 +17,11 @@ Insider Apache-2.0 license.
 | System.Reflection.Emit.ILGeneration | 4.7.0 | `System.Reflection.Emit.ILGeneration.dll` | MIT | [.NET CoreFX](https://github.com/dotnet/corefx) |
 | System.Reflection.Emit.Lightweight | 4.7.0 | `System.Reflection.Emit.Lightweight.dll` | MIT | [.NET CoreFX](https://github.com/dotnet/corefx) |
 
-Package metadata and dependency versions are resolved from NuGet. The direct
-RuntimeDetour package is available at
-[nuget.org/packages/MonoMod.RuntimeDetour](https://www.nuget.org/packages/MonoMod.RuntimeDetour/25.3.6).
+Package metadata and dependency versions are resolved from NuGet. Insider
+references RuntimeDetour for the backend and MonoMod.Utils for the public
+`ILContext` contract. Their package pages are
+[MonoMod.RuntimeDetour 25.3.6](https://www.nuget.org/packages/MonoMod.RuntimeDetour/25.3.6)
+and [MonoMod.Utils 25.0.14](https://www.nuget.org/packages/MonoMod.Utils/25.0.14).
 
 ## Redistributed assembly hashes
 

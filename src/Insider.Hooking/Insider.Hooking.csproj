@@ -3,7 +3,7 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <AssemblyName>Insider.Hooking</AssemblyName>
     <RootNamespace>Insider.Hooking</RootNamespace>
-    <Description>Managed runtime detour backend for Insider.</Description>
+    <Description>Managed detour and IL hooking backend for Insider.</Description>
     <IsPackable>false</IsPackable>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>

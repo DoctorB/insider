@@ -21,6 +21,8 @@ The first implementation target is intentionally narrow:
 - Managed method and instance-constructor detours backed by MonoMod.RuntimeDetour,
   including virtual implementations, `ref`/`out`/`in` parameters, by-reference
   returns, and `ref self` for value-type instance methods
+- Managed IL hooks through `context.Hooks.ModifyIl`, with MonoMod's `ILContext`
+  for instruction matching and rewriting
 
 IL2CPP and additional operating systems are planned as separate runtime
 backends. They are not supported yet.
@@ -112,9 +114,10 @@ Run the same check locally with:
 A local smoke fixture builds and launches a real Unity 2022.3 Windows x64
 player using the Mono scripting backend. It installs Insider, loads a test
 plugin, applies managed detours including one against the player's
-`Assembly-CSharp`, removes a two-node hook chain while the player is still
-running, verifies the original result is restored, checks native and managed
-diagnostics, and checks plugin unload on process exit:
+`Assembly-CSharp`, rewrites a second game method through `ModifyIl`, removes the
+two-node detour chain and IL hook while the player is still running, verifies
+both original results are restored, checks native and managed diagnostics, and
+checks plugin unload on process exit:
 
 ```powershell
 ./eng/Test-UnityMonoSmoke.ps1
@@ -158,11 +161,12 @@ plugin is activated:
 Versions deliberately use only `MAJOR.MINOR.PATCH`, and dependencies support one
 simple constraint: an optional minimum version.
 
-The initial hooking API is deliberately small. Plugins can apply a managed
-method or instance-constructor detour through
-`context.Hooks.Detour(target, replacement)`. The returned
-handle removes it early when disposed; Insider also removes every remaining
-plugin-owned detour automatically after `Unload()` or a failed `Load()`. A
+The hooking API is deliberately small. Plugins can apply a managed method or
+instance-constructor detour through
+`context.Hooks.Detour(target, replacement)`, or rewrite a target's managed IL
+through `context.Hooks.ModifyIl(target, manipulator)`. The returned handle
+removes either hook early when disposed; Insider also removes every remaining
+plugin-owned hook automatically after `Unload()` or a failed `Load()`. A
 replacement may accept an original-call delegate first, allowing it to wrap
 rather than completely replace game behavior. Multiple detours may share a
 target; each returned handle removes only its own detour, while inter-plugin
@@ -171,18 +175,21 @@ methods receive `self`; value-type instance methods receive `ref self` so their
 mutations affect the original struct. Declared `ref`, `out`, and `in` parameters
 and by-reference returns flow through replacements and original calls. Virtual
 base methods and overrides are targeted as separate implementations. Generic
-hook targets fail closed because the backend does not support them. Removal
-handles are idempotent, and backend failures use the stable
-`InsiderHookException` boundary. The
-[managed hooking guide](docs/hooking.md) documents every supported signature
-with examples.
+hook targets fail closed because the backend does not support them. IL
+manipulators receive MonoMod's complete `ILContext`, must match defensively, and
+may be invoked again when a target's IL-hook chain is rebuilt. Removal handles
+are idempotent, and backend failures use the stable `InsiderHookException`
+boundary. The [runtime hooking guide](docs/hooking.md) documents detour
+signatures, IL patterns, lifecycle, and examples.
 
 Messages written through `context.Logger` are automatically prefixed with the
 plugin ID, keeping the shared game log readable without extra logging APIs.
 
-Managed dependencies should be placed under `Insider/plugins/dependencies`.
-Insider resolves exact assembly identities from that tree and refuses ambiguous
-or conflicting versions. Unity Mono has one shared application domain, so two
+Managed plugin dependencies should be placed under
+`Insider/plugins/dependencies`; host-owned contracts and hooking dependencies
+are resolved from `Insider/core`. Insider resolves exact assembly identities
+from one catalog and refuses ambiguous or conflicting versions. Unity Mono has
+one shared application domain, so two
 plugins cannot safely carry different versions of an assembly with the same
 simple name. See the plugin development guide for the supported layout and
 diagnostics.
