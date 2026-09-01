@@ -23,6 +23,8 @@ internal static class Program
             ("contains plugin load failures", ContainsLoadFailure),
             ("scopes plugin log messages by id", ScopesPluginLogMessagesById),
             ("applies and removes a managed detour", AppliesAndRemovesManagedDetour),
+            ("detours an instance method and calls the original", DetoursInstanceMethodAndCallsOriginal),
+            ("rejects incompatible managed detour signatures", RejectsIncompatibleManagedDetourSignatures),
             ("removes plugin detours during unload", RemovesPluginDetoursDuringUnload),
             ("removes plugin detours after failed load", RemovesPluginDetoursAfterFailedLoad),
             ("unloads plugins in reverse order", UnloadsInReverseOrder),
@@ -124,6 +126,36 @@ internal static class Program
         }
 
         Assert(ManagedHookTarget.Value() == 7, "Disposing the managed detour did not restore the target method.");
+    }
+
+    private static void DetoursInstanceMethodAndCallsOriginal()
+    {
+        var service = new RuntimeDetourHookService();
+        var target = GetRequiredMethod(typeof(ManagedInstanceHookTarget), nameof(ManagedInstanceHookTarget.Add));
+        var instance = new ManagedInstanceHookTarget(3);
+
+        Assert(instance.Add(4) == 7, "Instance hook target did not begin with its original value.");
+        using (service.Detour(target, (ManagedInstanceReplacement)ManagedInstanceHookTarget.Replacement))
+        {
+            Assert(instance.Add(4) == 14, "Instance detour did not receive self or call the original method.");
+        }
+
+        Assert(instance.Add(4) == 7, "Disposing the instance detour did not restore the target method.");
+    }
+
+    private static void RejectsIncompatibleManagedDetourSignatures()
+    {
+        var service = new RuntimeDetourHookService();
+        var staticTarget = GetRequiredMethod(typeof(ManagedHookTarget), nameof(ManagedHookTarget.Value));
+        var instanceTarget = GetRequiredMethod(typeof(ManagedInstanceHookTarget), nameof(ManagedInstanceHookTarget.Add));
+        var valueTypeTarget = GetRequiredMethod(typeof(ManagedValueHookTarget), nameof(ManagedValueHookTarget.Value));
+
+        AssertThrows<ArgumentException>(
+            () => service.Detour(staticTarget, (Func<int, int>)ManagedHookTarget.ReplacementWithArgument));
+        AssertThrows<ArgumentException>(
+            () => service.Detour(instanceTarget, (Func<int, int>)ManagedInstanceHookTarget.ReplacementWithoutSelf));
+        AssertThrows<NotSupportedException>(
+            () => service.Detour(valueTypeTarget, (Func<ManagedValueHookTarget, int>)ManagedValueHookTarget.Replacement));
     }
 
     private static void RemovesPluginDetoursDuringUnload()
@@ -387,7 +419,7 @@ internal static class Program
 
     private static MethodInfo GetRequiredMethod(Type type, string name)
     {
-        return type.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+        return type.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)
             ?? throw new InvalidOperationException($"Method '{type.FullName}.{name}' was not found.");
     }
 
@@ -934,6 +966,61 @@ internal static class ManagedHookTarget
     public static int Replacement()
     {
         return 42;
+    }
+
+    public static int ReplacementWithArgument(int value)
+    {
+        return value;
+    }
+}
+
+internal delegate int ManagedInstanceOriginal(ManagedInstanceHookTarget self, int value);
+
+internal delegate int ManagedInstanceReplacement(
+    ManagedInstanceOriginal original,
+    ManagedInstanceHookTarget self,
+    int value);
+
+internal sealed class ManagedInstanceHookTarget
+{
+    private readonly int _baseValue;
+
+    public ManagedInstanceHookTarget(int baseValue)
+    {
+        _baseValue = baseValue;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int Add(int value)
+    {
+        return _baseValue + value;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static int Replacement(
+        ManagedInstanceOriginal original,
+        ManagedInstanceHookTarget self,
+        int value)
+    {
+        return original(self, value) * 2;
+    }
+
+    public static int ReplacementWithoutSelf(int value)
+    {
+        return value;
+    }
+}
+
+internal struct ManagedValueHookTarget
+{
+    public int Value()
+    {
+        return 7;
+    }
+
+    public static int Replacement(ManagedValueHookTarget self)
+    {
+        return self.Value();
     }
 }
 

@@ -81,12 +81,19 @@ The prefix is added by the loader; plugins should not add it themselves.
 
 ## Managed detours
 
-The first hooking API applies a direct managed method detour from a reflected
-target and a compatible replacement delegate:
+The hooking API applies a managed method detour from a reflected target and a
+compatible replacement delegate. This instance-method example preserves the
+original behavior and changes its result:
 
 ```csharp
 using System;
 using System.Reflection;
+
+private delegate int ComputeOriginal(TargetType self, int value);
+private delegate int ComputeHook(
+    ComputeOriginal original,
+    TargetType self,
+    int value);
 
 private IDisposable? _detour;
 
@@ -94,15 +101,18 @@ public void Load(IInsiderContext context)
 {
     var target = typeof(TargetType).GetMethod(
         "Compute",
-        BindingFlags.Public | BindingFlags.Static)
+        BindingFlags.Public | BindingFlags.Instance)
         ?? throw new InvalidOperationException("Target method not found.");
 
-    _detour = context.Hooks.Detour(target, (Func<int, int>)Replacement);
+    _detour = context.Hooks.Detour(target, (ComputeHook)Replacement);
 }
 
-private static int Replacement(int value)
+private static int Replacement(
+    ComputeOriginal original,
+    TargetType self,
+    int value)
 {
-    return value * 2;
+    return original(self, value) * 2;
 }
 ```
 
@@ -111,10 +121,20 @@ remove it early. Insider also owns every handle created through a plugin context
 and removes remaining detours after that plugin's `Unload()` callback or after a
 failed `Load()`.
 
-The target and replacement signatures must be compatible. Abstract methods and
-open generic methods are rejected. Original-call continuations, IL rewriting,
-HookGen, ordering controls, and native hooks are not part of the initial Insider
-contract even when the underlying backend offers related features.
+Signatures are exact. A direct replacement receives the target arguments. An
+instance-method replacement receives the declaring type as `self` before those
+arguments. To call the original behavior, prepend a delegate with that same
+return type and parameter list, as in the example above. Call this delegate only
+synchronously while the replacement is executing; do not store it.
+
+If more than one detour targets the same method, that delegate advances to the
+next detour and eventually the original method. Insider does not define
+inter-plugin detour order yet.
+
+Abstract methods, open generic methods, variable-argument methods, and instance
+methods declared on value types are rejected. IL rewriting, HookGen, ordering
+controls, and native hooks remain outside the Insider contract even when the
+underlying backend offers related features.
 
 ## Installation layout
 

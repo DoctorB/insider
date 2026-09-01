@@ -43,7 +43,9 @@ The local `UnityMonoSmoke` fixture builds a development player with Unity
 the managed bootstrap, plugin discovery, plugin load, process-exit unload, and
 persistent native and managed logs. On 2026-09-01 the same fixture also applied
 a MonoMod.RuntimeDetour managed hook inside Unity Mono and observed the expected
-replacement result during plugin load and unload.
+replacement result during plugin load and unload. The fixture now also wraps a
+reference-type instance method, receives its `self` argument, and invokes the
+original method synchronously.
 
 The fixture is repeatable through `eng/Test-UnityMonoSmoke.ps1`, but it is not
 run in GitHub Actions because hosted execution would require a Unity Editor and

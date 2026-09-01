@@ -41,3 +41,6 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   plus managed and real Unity Mono hook fixtures.
 - Plugin-scoped assembly resolution that leaves core hooking dependencies to the
   host without false missing-dependency errors.
+- Exact hook-signature validation plus reference-type instance detours and
+  synchronous original-method continuations, verified in managed and Unity Mono
+  fixtures.

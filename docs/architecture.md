@@ -75,7 +75,9 @@ never overwritten.
 The first runtime backend implements `IInsiderHookService` through
 MonoMod.RuntimeDetour. The public surface creates direct managed method detours
 from a `MethodInfo` and replacement `Delegate`; construction applies the detour
-immediately and disposal removes it. MonoMod types, IL hooks, HookGen, detour
+immediately and disposal removes it. Replacements use exact signatures, include
+`self` for reference-type instance methods, and may prepend an original-call
+delegate to wrap existing behavior. MonoMod types, IL hooks, HookGen, detour
 ordering, and native detours are not exposed by the initial contract.
 
 The old v1 memory patcher remains archived and is not used by the production
