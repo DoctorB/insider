@@ -8,6 +8,7 @@ namespace Insider.Bootstrap;
 internal sealed class BootstrapSession : IDisposable
 {
     private readonly object _sync = new object();
+    private UnityMonoMainThread? _mainThread;
     private PluginHost? _pluginHost;
     private bool _started;
     private bool _stopped;
@@ -59,15 +60,20 @@ internal sealed class BootstrapSession : IDisposable
                     failedPluginCount: 0);
             }
 
+            var hooks = new RuntimeDetourHookService();
+            _mainThread = new UnityMonoMainThread(hooks, logger);
+
             var context = new BootstrapContext(
                 normalizedGameDirectory,
                 insiderDirectory,
                 logger,
                 runtime,
-                new RuntimeDetourHookService());
+                _mainThread,
+                hooks);
             _pluginHost = new PluginHost(context);
 
             var results = _pluginHost.LoadDirectory(pluginDirectory);
+            _mainThread.Start();
             var loaded = 0;
             var failed = 0;
 
@@ -106,8 +112,17 @@ internal sealed class BootstrapSession : IDisposable
             }
 
             _stopped = true;
-            _pluginHost?.Dispose();
-            _pluginHost = null;
+            try
+            {
+                _pluginHost?.Dispose();
+            }
+            finally
+            {
+                _pluginHost = null;
+                _mainThread?.Dispose();
+                _mainThread = null;
+            }
+
             Logger?.Info("Insider bootstrap stopped.");
         }
     }

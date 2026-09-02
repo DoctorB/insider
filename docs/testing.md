@@ -23,6 +23,9 @@ manifests, hash verification, and proxy backup restoration. The same suite also
 covers IL instruction replacement and restoration, multiple selectively removed
 manipulators, detour coexistence, value-type constructor rewriting, target and
 manipulator validation, stable failures, plugin ownership, and retryable cleanup.
+It also verifies FIFO main-thread dispatch, next-pump deferral, callback failure
+containment, readiness and thread identity, plugin-scoped logging, pending-work
+cancellation, and dispatcher hook cleanup.
 
 ### Managed bootstrap integration fixture
 
@@ -70,14 +73,25 @@ The managed test phase covers instruction replacement through `ILCursor` and
 observable restoration, multiple manipulators with selective removal,
 coexistence with a detour, normal and failed-load cleanup, retry after simulated
 removal failure, unsupported targets, multicast manipulators, and stable
-`InsiderHookException` diagnostics. The suite currently contains 51 passing
-tests.
+`InsiderHookException` diagnostics.
 
 The real-player phase rewrites a method on Unity's effective
 `Assembly-CSharp`, observes `42` through a direct player call, disposes the
 handle while the player remains active, and then observes the original `7`.
 This is evidence for the controlled Unity fixture, not a general compatibility
 claim.
+
+### Unity main-thread dispatch phase
+
+The managed suite uses a minimal dynamic assembly named
+`UnityEngine.CoreModule` to verify discovery of the expected synchronization
+pump without taking a Unity dependency. Together with the hook tests, the suite
+currently contains 54 passing tests.
+
+The real-player phase proves that `Load()` runs on Insider's bootstrap thread
+and that a callback posted through `context.MainThread` later runs on Unity's
+main thread. It checks `IsReady`, `IsCurrent`, the active
+`UnitySynchronizationContext`, and `UnityEngine.Application.isPlaying`.
 
 ### Windows package smoke test
 
@@ -123,11 +137,15 @@ The test succeeds only when all of these observations are present:
 15. the plugin applies an IL hook to a second `Assembly-CSharp` method and the
     player directly observes `42` instead of the original `7`;
 16. disposing that IL-hook handle restores `7` while the player remains active;
-17. the test plugin writes its load marker and scoped log messages;
-18. the other plugin-owned detours remain active through the plugin's
+17. Insider installs its dispatcher on Unity's synchronization pump;
+18. a callback posted during plugin load runs on Unity's main thread with
+    `IsReady`, `IsCurrent`, the Unity synchronization context, and
+    `Application.isPlaying` all verified;
+19. the test plugin writes its load marker and scoped log messages;
+20. the other plugin-owned detours remain active through the plugin's
     `Unload()` callback;
-19. the managed log contains no error entries;
-20. the installed files still pass the CLI status check.
+21. the managed log contains no error entries;
+22. the installed files still pass the CLI status check.
 
 This test is local rather than part of GitHub Actions because it needs an
 installed and licensed Unity Editor. Its generated project state, package, and
@@ -137,15 +155,14 @@ player stay below `artifacts/unity-mono-smoke` or ignored Unity directories.
 
 The fake native runtime cannot execute managed IL or reproduce Unity's Mono
 fork. The real-player fixture covers one Unity release and a deliberately empty
-game, but it does not validate game-specific behavior, Unity main-thread APIs,
+game. It validates one main-thread callback and a read of
+`Application.isPlaying`, but not arbitrary or game-specific Unity API behavior,
 hooks against UnityEngine or production game code, ordered chains or chains
 involving multiple real plugins, constructor hooks inside Unity, complex method
 signatures beyond those listed above, removal-failure retry paths inside Unity,
-value-type constructors, complex IL control flow, anti-cheat interaction, or other
-Unity/Mono versions.
-Broader
-real-player evidence is still required before compatibility can move from
-experimental to supported.
+value-type constructors, complex IL control flow, anti-cheat interaction, or
+other Unity/Mono versions. Broader real-player evidence is still required before
+compatibility can move from experimental to supported.
 
 ## Run locally
 

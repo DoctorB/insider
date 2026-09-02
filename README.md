@@ -23,6 +23,8 @@ The first implementation target is intentionally narrow:
   returns, and `ref self` for value-type instance methods
 - Managed IL hooks through `context.Hooks.ModifyIl`, with MonoMod's `ILContext`
   for instruction matching and rewriting
+- A loader-owned `context.MainThread` dispatcher for scheduling Unity work from
+  the early bootstrap thread
 
 IL2CPP and additional operating systems are planned as separate runtime
 backends. They are not supported yet.
@@ -50,7 +52,8 @@ and [docs/compatibility.md](docs/compatibility.md) for the support policy. The
 fixture and what still requires a real Unity player. Plugin authors should start
 with the [plugin development guide](docs/plugin-development.md) and use the
 [managed hooking guide](docs/hooking.md) for signatures, lifecycle rules, and
-complete examples.
+complete examples. Unity-facing work should use the
+[main-thread guide](docs/main-thread.md).
 
 ## Repository layout
 
@@ -116,8 +119,9 @@ player using the Mono scripting backend. It installs Insider, loads a test
 plugin, applies managed detours including one against the player's
 `Assembly-CSharp`, rewrites a second game method through `ModifyIl`, removes the
 two-node detour chain and IL hook while the player is still running, verifies
-both original results are restored, checks native and managed diagnostics, and
-checks plugin unload on process exit:
+both original results are restored, dispatches a plugin callback through
+Unity's synchronization pump, checks native and managed diagnostics, and checks
+plugin unload on process exit:
 
 ```powershell
 ./eng/Test-UnityMonoSmoke.ps1
@@ -181,6 +185,12 @@ may be invoked again when a target's IL-hook chain is rebuilt. Removal handles
 are idempotent, and backend failures use the stable `InsiderHookException`
 boundary. The [runtime hooking guide](docs/hooking.md) documents detour
 signatures, IL patterns, lifecycle, and examples.
+
+`Load()` runs on Insider's bootstrap thread, not Unity's main thread. Schedule
+the smallest Unity-facing callback with `context.MainThread.Post(...)` instead
+of calling Unity APIs directly during activation. Pending callbacks belong to
+the plugin and are invalidated when it unloads. See the
+[Unity main-thread guide](docs/main-thread.md) for queue semantics and examples.
 
 Messages written through `context.Logger` are automatically prefixed with the
 plugin ID, keeping the shared game log readable without extra logging APIs.

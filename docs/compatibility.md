@@ -63,6 +63,14 @@ result from `7` to `42`, removes the IL hook while the player remains active,
 and observes `7` again. Loading that plugin also verifies that MonoMod/Cecil
 contract assemblies are resolved from the host-owned `Insider/core` directory.
 
+On 2026-09-02 the fixture also verified the loader-owned Unity main-thread
+dispatcher. Plugin `Load()` ran on managed thread 3, while its posted callback
+ran on Unity's managed thread 1 with `IsReady` and `IsCurrent` true. The callback
+observed `UnityEngine.UnitySynchronizationContext` as the current synchronization
+context and read `UnityEngine.Application.isPlaying` as true. This establishes
+the dispatcher contract for the controlled player, not arbitrary Unity API or
+Unity-version compatibility.
+
 The fixture is repeatable through `eng/Test-UnityMonoSmoke.ps1`, but it is not
 run in GitHub Actions because hosted execution would require a Unity Editor and
 license. One controlled player does not establish compatibility with other

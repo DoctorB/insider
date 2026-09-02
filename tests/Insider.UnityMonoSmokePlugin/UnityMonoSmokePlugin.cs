@@ -26,11 +26,14 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
     private static int _refReturnReplacementValue = 42;
     private IInsiderContext? _context;
     private Timer? _gameHookRemovalTimer;
+    private int _loadThreadId;
 
     public void Load(IInsiderContext context)
     {
         _context = context;
         _insiderDirectory = context.InsiderDirectory;
+        _loadThreadId = Thread.CurrentThread.ManagedThreadId;
+        context.MainThread.Post(() => VerifyMainThread(context));
         AppDomain.CurrentDomain.AssemblyLoad += OnAssemblyLoad;
         foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
         {
@@ -331,6 +334,56 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
         {
             _context?.Logger.Error("Could not install the Unity smoke game hook.", exception);
         }
+    }
+
+    private void VerifyMainThread(IInsiderContext context)
+    {
+        if (!context.MainThread.IsReady || !context.MainThread.IsCurrent)
+        {
+            throw new InvalidOperationException("Unity main-thread state was not reported correctly.");
+        }
+
+        var synchronizationContextName = SynchronizationContext.Current?.GetType().FullName;
+        if (!string.Equals(
+            synchronizationContextName,
+            "UnityEngine.UnitySynchronizationContext",
+            StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Unexpected Unity synchronization context '{synchronizationContextName ?? "<null>"}'.");
+        }
+
+        Type? applicationType = null;
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            if (!string.Equals(assembly.GetName().Name, "UnityEngine.CoreModule", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            applicationType = assembly.GetType("UnityEngine.Application", throwOnError: false);
+            break;
+        }
+
+        var isPlayingProperty = applicationType?.GetProperty(
+            "isPlaying",
+            BindingFlags.Public | BindingFlags.Static)
+            ?? throw new InvalidOperationException("UnityEngine.Application.isPlaying was not found.");
+        var isPlaying = isPlayingProperty.GetValue(null, index: null);
+        if (!Equals(isPlaying, true))
+        {
+            throw new InvalidOperationException($"Unity Application.isPlaying returned '{isPlaying}'.");
+        }
+
+        File.WriteAllText(
+            Path.Combine(context.InsiderDirectory, "unity-smoke-main-thread.txt"),
+            $"IsReady={context.MainThread.IsReady}{Environment.NewLine}" +
+            $"IsCurrent={context.MainThread.IsCurrent}{Environment.NewLine}" +
+            $"SynchronizationContext={synchronizationContextName}{Environment.NewLine}" +
+            $"ApplicationIsPlaying={isPlaying}{Environment.NewLine}" +
+            $"LoadThreadId={_loadThreadId}{Environment.NewLine}" +
+            $"CallbackThreadId={Thread.CurrentThread.ManagedThreadId}");
+        context.Logger.Info("INSIDER_UNITY_MONO_SMOKE_MAIN_THREAD_CALLBACK");
     }
 
     private void TryInstallGameHook(Assembly assembly)

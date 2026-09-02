@@ -1,7 +1,8 @@
 # Architecture
 
-Insider separates process entry, plugin loading, runtime integration, and method
-hooking so each layer can evolve without changing the plugin contract.
+Insider separates process entry, plugin loading, runtime integration, main-thread
+dispatch, and method hooking so each layer can evolve without changing the
+plugin contract.
 
 ```text
 Unity executable
@@ -18,9 +19,9 @@ Unity executable
 ### Insider.Abstractions
 
 The public plugin contract. It contains metadata, lifecycle, logging, runtime
-information, and the small managed-hook service interface. It has no dependency
-on Unity, a mod loader, or a native bootstrap. Managed detours remain
-backend-neutral; the advanced `ModifyIl` operation deliberately exposes
+information, and the small managed-hook and main-thread service interfaces. It
+has no dependency on Unity, a mod loader, or a native bootstrap. Managed detours
+remain backend-neutral; the advanced `ModifyIl` operation deliberately exposes
 MonoMod's `ILContext` because replacing that complete IL model with an
 Insider-specific facade would add a large second instruction API.
 
@@ -49,7 +50,8 @@ initial loader contract.
 Each activated plugin receives a thin context wrapper whose logger prefixes
 messages with the plugin ID and whose hooking service tracks that plugin's
 detours and IL hooks. Remaining hooks are removed in reverse creation order
-after `Unload()`, including cleanup after a failed `Load()`.
+after `Unload()`, including cleanup after a failed `Load()`. Its main-thread
+wrapper also makes pending callbacks inert when the plugin context is disposed.
 
 ### Insider.Bootstrap
 
@@ -58,6 +60,12 @@ creates diagnostics, detects the scripting backend, and starts the chainloader.
 The native loader invokes `Insider.Native.Entrypoint.Start()` through Mono's
 embedding API. The exported `Doorstop.Entrypoint.Start()` method is retained as
 a compatibility adapter rather than a dependency on a full mod loader.
+
+For Unity Mono, the bootstrap observes `UnityEngine.CoreModule` and installs a
+loader-owned detour on `UnitySynchronizationContext.ExecuteTasks()` after the
+managed resolver is active. Unity's original pump runs first; Insider then
+drains one FIFO snapshot of plugin callbacks on that same thread. Plugin loading
+remains synchronous and deterministic on the bootstrap thread.
 
 ### Insider.Bootstrap.Native
 
@@ -106,6 +114,9 @@ Value-type constructors remain unsupported by `Detour` but are valid
 The public signature, IL, and lifecycle rules are documented with working
 patterns in the [runtime hooking guide](hooking.md).
 
+The public scheduling contract, ownership rules, and Unity usage example are
+documented in the [Unity main-thread guide](main-thread.md).
+
 The old v1 memory patcher remains archived and is not used by the production
 backend.
 
@@ -124,6 +135,9 @@ backend.
   plugins must not redistribute private copies.
 - Plugin activation must follow declared required dependencies, never incidental
   filesystem or reflection order.
+- Unity-facing plugin work must be posted through the scoped main-thread service;
+  `Load()` and `Unload()` are not main-thread callbacks.
+- Work queued by an inactive or failed plugin must never execute later.
 - Every detour or IL hook created through a plugin context belongs to that
   plugin and must be removed even when plugin load or unload fails.
 - A failed removal must remain observable and retryable; it must not be marked
@@ -148,8 +162,10 @@ version conflicts. These deterministic contract tests run in CI.
 
 A separate local fixture builds a real Unity 2022.3 Windows x64 Mono player and
 proves that the native proxy can enter the existing Mono domain, start the
-managed loader, load one plugin, apply a managed method detour, and unload the
-plugin during process exit. The plugin also waits for Unity's real
+managed loader, load one plugin, dispatch a callback through Unity's real
+synchronization pump, apply a managed method detour, and unload the plugin
+during process exit. The dispatched callback verifies the Unity synchronization
+context and a live Unity API from the main thread. The plugin also waits for Unity's real
 `Assembly-CSharp` instance and detours a method that the player invokes
 directly. It also rewrites a second game method through `ModifyIl`. The fixture
 removes the detour chain and IL hook while the player remains active and

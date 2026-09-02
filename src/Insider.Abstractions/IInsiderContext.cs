@@ -10,5 +10,7 @@ public interface IInsiderContext
 
     IInsiderRuntimeInfo Runtime { get; }
 
+    IInsiderMainThread MainThread { get; }
+
     IInsiderHookService Hooks { get; }
 }

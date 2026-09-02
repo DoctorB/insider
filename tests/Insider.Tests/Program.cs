@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using ReflectionEmit = System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Insider.Bootstrap;
@@ -25,6 +26,8 @@ internal static class Program
             ("rejects missing metadata", RejectsMissingMetadata),
             ("contains plugin load failures", ContainsLoadFailure),
             ("scopes plugin log messages by id", ScopesPluginLogMessagesById),
+            ("contains plugin main-thread callback failures", ContainsPluginMainThreadCallbackFailures),
+            ("cancels queued main-thread callbacks during plugin unload", CancelsQueuedMainThreadCallbacksDuringUnload),
             ("applies and removes a managed detour", AppliesAndRemovesManagedDetour),
             ("detours a method with ref and out parameters", DetoursMethodWithRefAndOutParameters),
             ("detours a method with in parameters", DetoursMethodWithInParameters),
@@ -71,6 +74,7 @@ internal static class Program
             ("fails closed on an unsupported managed runtime", FailsClosedOnUnsupportedManagedRuntime),
             ("installs and uninstalls without losing an existing proxy", InstallsAndRestoresExistingProxy),
             ("refuses to remove modified installation files", RefusesToRemoveModifiedFiles),
+            ("dispatches Unity main-thread callbacks", DispatchesUnityMainThreadCallbacks),
         };
 
         var failed = 0;
@@ -140,6 +144,42 @@ internal static class Program
         Assert(
             context.CapturedLogger.Messages.Contains("Loaded plugin dev.insider.tests.logging 1.0.0."),
             "Loader message was unexpectedly changed by the plugin scope.");
+    }
+
+    private static void ContainsPluginMainThreadCallbackFailures()
+    {
+        var mainThread = new ManualMainThread();
+        var context = new TestContext(mainThread: mainThread);
+        using var host = new PluginHost(context);
+
+        var result = host.Load(typeof(MainThreadCallbackPlugin));
+        Assert(result.Succeeded, result.Error ?? "Main-thread callback plugin did not load.");
+
+        mainThread.Drain();
+
+        Assert(MainThreadCallbackPlugin.SuccessCount == 1, "A failed callback stopped the remaining plugin callbacks.");
+        Assert(
+            context.CapturedLogger.Messages.Any(message =>
+                message.Contains("[dev.insider.tests.main-thread-callback] Main-thread callback failed.", StringComparison.Ordinal)),
+            "The failed callback was not logged with its plugin id.");
+    }
+
+    private static void CancelsQueuedMainThreadCallbacksDuringUnload()
+    {
+        var mainThread = new ManualMainThread();
+        using var host = new PluginHost(new TestContext(mainThread: mainThread));
+
+        var result = host.Load(typeof(MainThreadCancellationPlugin));
+        Assert(result.Succeeded, result.Error ?? "Main-thread cancellation plugin did not load.");
+
+        host.UnloadAll();
+        mainThread.Drain();
+
+        Assert(MainThreadCancellationPlugin.CallbackCount == 0, "A queued callback ran after plugin unload.");
+        AssertThrows<ObjectDisposedException>(() =>
+            (MainThreadCancellationPlugin.Dispatcher
+                ?? throw new InvalidOperationException("Plugin dispatcher was not captured."))
+            .Post(() => { }));
     }
 
     private static void AppliesAndRemovesManagedDetour()
@@ -928,6 +968,45 @@ internal static class Program
         Assert(!File.Exists(modifiedPath), "Forced uninstall did not remove the modified file.");
     }
 
+    private static void DispatchesUnityMainThreadCallbacks()
+    {
+        _ = ManagedMainThreadFixture.UnityCoreAssembly;
+        var hooks = new CapturingMainThreadHookService();
+        var logger = new TestLogger();
+        var events = new List<string>();
+        var dispatcher = new UnityMonoMainThread(hooks, logger);
+
+        dispatcher.Start();
+        Assert(hooks.Target?.Name == "ExecuteTasks", "The Unity synchronization pump was not targeted.");
+        Assert(!dispatcher.IsReady, "The dispatcher was ready before the Unity pump ran.");
+
+        dispatcher.Post(() =>
+        {
+            events.Add("first");
+            dispatcher.Post(() => events.Add("next-frame"));
+        });
+        dispatcher.Post(() => events.Add("second"));
+
+        hooks.InvokePump();
+        Assert(dispatcher.IsReady && dispatcher.IsCurrent, "The Unity pump did not identify the current main thread.");
+        Assert(events.SequenceEqual(new[] { "first", "second" }), "Callbacks did not run in FIFO snapshot order.");
+
+        hooks.InvokePump();
+        Assert(events.SequenceEqual(new[] { "first", "second", "next-frame" }), "A reentrant callback did not wait for the next pump.");
+
+        dispatcher.Post(() => throw new InvalidOperationException("Expected callback failure."));
+        dispatcher.Post(() => events.Add("after-failure"));
+        hooks.InvokePump();
+        Assert(events[^1] == "after-failure", "A failed callback stopped the remaining dispatcher callbacks.");
+        Assert(
+            logger.Messages.Contains("A Unity main-thread callback failed."),
+            "The dispatcher did not log a failed callback.");
+
+        dispatcher.Dispose();
+        Assert(hooks.Hook.DisposeCount == 1, "The Unity pump hook was not removed exactly once.");
+        AssertThrows<ObjectDisposedException>(() => dispatcher.Post(() => { }));
+    }
+
     private static PluginHost CreateHost(IInsiderHookService? hooks = null)
     {
         return new PluginHost(new TestContext(hooks));
@@ -963,6 +1042,9 @@ internal static class Program
         ManagedRefReturnHookTarget.Reset();
         RetryingCleanupPlugin.ObservedFirstFailure = false;
         RetryingIlCleanupPlugin.ObservedFirstFailure = false;
+        MainThreadCallbackPlugin.SuccessCount = 0;
+        MainThreadCancellationPlugin.CallbackCount = 0;
+        MainThreadCancellationPlugin.Dispatcher = null;
         LifecycleEvents.Clear();
         PluginGraphEvents.Clear();
     }
@@ -1437,10 +1519,13 @@ public sealed class OptionalDependencyPlugin : IInsiderPlugin
 
 internal sealed class TestContext : IInsiderContext
 {
-    public TestContext(IInsiderHookService? hooks = null)
+    public TestContext(
+        IInsiderHookService? hooks = null,
+        IInsiderMainThread? mainThread = null)
     {
         CapturedLogger = new TestLogger();
         Logger = CapturedLogger;
+        MainThread = mainThread ?? new NoOpMainThread();
         Hooks = hooks ?? new NoOpHookService();
     }
 
@@ -1454,7 +1539,132 @@ internal sealed class TestContext : IInsiderContext
 
     public IInsiderRuntimeInfo Runtime { get; } = new TestRuntimeInfo();
 
+    public IInsiderMainThread MainThread { get; }
+
     public IInsiderHookService Hooks { get; }
+}
+
+internal sealed class NoOpMainThread : IInsiderMainThread
+{
+    public bool IsReady => false;
+
+    public bool IsCurrent => false;
+
+    public void Post(Action callback)
+    {
+        _ = callback ?? throw new ArgumentNullException(nameof(callback));
+    }
+}
+
+internal sealed class ManualMainThread : IInsiderMainThread
+{
+    private readonly Queue<Action> _callbacks = new Queue<Action>();
+    private bool _isCurrent;
+
+    public bool IsReady => true;
+
+    public bool IsCurrent => _isCurrent;
+
+    public void Post(Action callback)
+    {
+        _callbacks.Enqueue(callback ?? throw new ArgumentNullException(nameof(callback)));
+    }
+
+    public void Drain()
+    {
+        var callbacks = _callbacks.ToArray();
+        _callbacks.Clear();
+        _isCurrent = true;
+        try
+        {
+            foreach (var callback in callbacks)
+            {
+                callback();
+            }
+        }
+        finally
+        {
+            _isCurrent = false;
+        }
+    }
+}
+
+internal sealed class CapturingMainThreadHookService : IInsiderHookService
+{
+    public MethodBase? Target { get; private set; }
+
+    public Delegate? Replacement { get; private set; }
+
+    public CapturedMainThreadHook Hook { get; } = new CapturedMainThreadHook();
+
+    public int OriginalCalls { get; private set; }
+
+    public IDisposable Detour(MethodBase target, Delegate replacement)
+    {
+        Target = target;
+        Replacement = replacement;
+        return Hook;
+    }
+
+    public IDisposable ModifyIl(MethodBase target, Action<ILContext> manipulator)
+    {
+        throw new NotSupportedException("The main-thread fixture does not install IL hooks.");
+    }
+
+    public void InvokePump()
+    {
+        var replacement = Replacement
+            ?? throw new InvalidOperationException("The Unity pump replacement was not captured.");
+        var originalType = replacement.Method.GetParameters()[0].ParameterType;
+        var originalMethod = GetType().GetMethod(
+            nameof(CallOriginal),
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("The Unity pump original callback was not found.");
+        var original = Delegate.CreateDelegate(originalType, this, originalMethod);
+        replacement.DynamicInvoke(original);
+    }
+
+    private void CallOriginal()
+    {
+        OriginalCalls++;
+    }
+
+    internal sealed class CapturedMainThreadHook : IDisposable
+    {
+        public int DisposeCount { get; private set; }
+
+        public void Dispose()
+        {
+            if (DisposeCount == 0)
+            {
+                DisposeCount++;
+            }
+        }
+    }
+}
+
+internal static class ManagedMainThreadFixture
+{
+    public static Assembly UnityCoreAssembly { get; } = CreateUnityCoreAssembly();
+
+    private static Assembly CreateUnityCoreAssembly()
+    {
+        var assembly = ReflectionEmit.AssemblyBuilder.DefineDynamicAssembly(
+            new AssemblyName("UnityEngine.CoreModule"),
+            ReflectionEmit.AssemblyBuilderAccess.Run);
+        var module = assembly.DefineDynamicModule("UnityEngine.CoreModule.dll");
+        var type = module.DefineType(
+            "UnityEngine.UnitySynchronizationContext",
+            TypeAttributes.NotPublic | TypeAttributes.Sealed);
+        var executeTasks = type.DefineMethod(
+            "ExecuteTasks",
+            MethodAttributes.Private | MethodAttributes.Static | MethodAttributes.HideBySig,
+            typeof(void),
+            Type.EmptyTypes);
+        executeTasks.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        _ = type.CreateType();
+        return assembly;
+    }
 }
 
 internal sealed class NoOpHookService : IInsiderHookService
@@ -2182,6 +2392,40 @@ public sealed class MultipleIlCleanupPlugin : IInsiderPlugin
             ?? throw new InvalidOperationException("Managed IL hook target was not found.");
         _ = context.Hooks.ModifyIl(target, ManagedIlHookTarget.NoOp);
         _ = context.Hooks.ModifyIl(target, ManagedIlHookTarget.NoOp);
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.main-thread-callback", "Main Thread Callback", "1.0.0")]
+public sealed class MainThreadCallbackPlugin : IInsiderPlugin
+{
+    public static int SuccessCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        context.MainThread.Post(() => throw new InvalidOperationException("Expected plugin callback failure."));
+        context.MainThread.Post(() => SuccessCount++);
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.main-thread-cancellation", "Main Thread Cancellation", "1.0.0")]
+public sealed class MainThreadCancellationPlugin : IInsiderPlugin
+{
+    public static int CallbackCount { get; set; }
+
+    public static IInsiderMainThread? Dispatcher { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        Dispatcher = context.MainThread;
+        context.MainThread.Post(() => CallbackCount++);
     }
 
     public void Unload()
