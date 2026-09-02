@@ -26,11 +26,19 @@ public sealed class PluginHost : IDisposable
 
     public IReadOnlyList<PluginLoadResult> LoadDirectory(string directory)
     {
+        return LoadDirectory(directory, Array.Empty<string>());
+    }
+
+    public IReadOnlyList<PluginLoadResult> LoadDirectory(
+        string directory,
+        IEnumerable<string> disabledPluginIds)
+    {
         if (string.IsNullOrWhiteSpace(directory))
         {
             throw new ArgumentException("A plugin directory is required.", nameof(directory));
         }
 
+        var disabled = CreateDisabledPluginSet(disabledPluginIds);
         var normalizedDirectory = Path.GetFullPath(directory);
         Directory.CreateDirectory(normalizedDirectory);
 
@@ -51,7 +59,7 @@ public sealed class PluginHost : IDisposable
             DiscoverAssembly(assemblyPath, pluginTypes, results);
         }
 
-        return LoadTypes(pluginTypes, results);
+        return LoadTypes(pluginTypes, results, disabled);
     }
 
     public IReadOnlyList<PluginLoadResult> LoadAssembly(string assemblyPath)
@@ -64,7 +72,7 @@ public sealed class PluginHost : IDisposable
         var results = new List<PluginLoadResult>();
         var pluginTypes = new List<Type>();
         DiscoverAssembly(assemblyPath, pluginTypes, results);
-        return LoadTypes(pluginTypes, results);
+        return LoadTypes(pluginTypes, results, CreateDisabledPluginSet(Array.Empty<string>()));
     }
 
     public PluginLoadResult Load(Type pluginType)
@@ -79,17 +87,28 @@ public sealed class PluginHost : IDisposable
 
     public IReadOnlyList<PluginLoadResult> Load(IEnumerable<Type> pluginTypes)
     {
+        return Load(pluginTypes, Array.Empty<string>());
+    }
+
+    public IReadOnlyList<PluginLoadResult> Load(
+        IEnumerable<Type> pluginTypes,
+        IEnumerable<string> disabledPluginIds)
+    {
         if (pluginTypes is null)
         {
             throw new ArgumentNullException(nameof(pluginTypes));
         }
 
-        return LoadTypes(pluginTypes, new List<PluginLoadResult>());
+        return LoadTypes(
+            pluginTypes,
+            new List<PluginLoadResult>(),
+            CreateDisabledPluginSet(disabledPluginIds));
     }
 
     private IReadOnlyList<PluginLoadResult> LoadTypes(
         IEnumerable<Type> pluginTypes,
-        List<PluginLoadResult> results)
+        List<PluginLoadResult> results,
+        ISet<string> disabledPluginIds)
     {
         var candidates = new List<PluginCandidate>();
         foreach (var pluginType in pluginTypes)
@@ -108,7 +127,8 @@ public sealed class PluginHost : IDisposable
         }
 
         var remaining = SelectUniqueCandidates(candidates, results);
-        RemoveCandidatesWithMissingDependencies(remaining, results);
+        RemoveDisabledCandidates(remaining, disabledPluginIds);
+        RemoveCandidatesWithMissingDependencies(remaining, disabledPluginIds, results);
         var loadOrder = CreateLoadOrder(remaining, results);
 
         foreach (var candidate in loadOrder)
@@ -312,6 +332,7 @@ public sealed class PluginHost : IDisposable
 
     private void RemoveCandidatesWithMissingDependencies(
         IDictionary<string, PluginCandidate> candidates,
+        ISet<string> disabledPluginIds,
         ICollection<PluginLoadResult> results)
     {
         while (true)
@@ -322,7 +343,7 @@ public sealed class PluginHost : IDisposable
                     Candidate = candidate,
                     Missing = candidate.Dependencies
                         .Where(dependency => !dependency.Optional)
-                        .Select(dependency => GetRequirementFailure(dependency, candidates))
+                        .Select(dependency => GetRequirementFailure(dependency, candidates, disabledPluginIds))
                         .Where(failure => failure is not null)
                         .Cast<string>()
                         .ToArray(),
@@ -386,7 +407,8 @@ public sealed class PluginHost : IDisposable
 
     private string? GetRequirementFailure(
         PluginDependencyDescriptor dependency,
-        IDictionary<string, PluginCandidate> candidates)
+        IDictionary<string, PluginCandidate> candidates,
+        ISet<string> disabledPluginIds)
     {
         if (_plugins.TryGetValue(dependency.Id, out var loaded))
         {
@@ -400,7 +422,52 @@ public sealed class PluginHost : IDisposable
                 : FormatVersionFailure(dependency, candidate.Metadata.Version);
         }
 
+        if (disabledPluginIds.Contains(dependency.Id))
+        {
+            return $"{dependency.Id} (disabled)";
+        }
+
         return $"{dependency.Id} (missing)";
+    }
+
+    private void RemoveDisabledCandidates(
+        IDictionary<string, PluginCandidate> candidates,
+        ISet<string> disabledPluginIds)
+    {
+        var disabledCandidates = candidates.Values
+            .Where(candidate => disabledPluginIds.Contains(candidate.Metadata.Id))
+            .OrderBy(candidate => candidate.Metadata.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        foreach (var candidate in disabledCandidates)
+        {
+            candidates.Remove(candidate.Metadata.Id);
+            _context.Logger.Info(
+                $"Skipped disabled plugin {candidate.Metadata.Id} {candidate.Metadata.Version}.");
+        }
+    }
+
+    private static ISet<string> CreateDisabledPluginSet(IEnumerable<string> disabledPluginIds)
+    {
+        if (disabledPluginIds is null)
+        {
+            throw new ArgumentNullException(nameof(disabledPluginIds));
+        }
+
+        var disabled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pluginId in disabledPluginIds)
+        {
+            if (string.IsNullOrWhiteSpace(pluginId))
+            {
+                throw new ArgumentException(
+                    "Disabled plugin ids cannot be empty.",
+                    nameof(disabledPluginIds));
+            }
+
+            disabled.Add(pluginId.Trim());
+        }
+
+        return disabled;
     }
 
     private string? GetLoadedRequirementFailure(PluginDependencyDescriptor dependency)

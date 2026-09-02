@@ -58,6 +58,35 @@ absence or failure does not block the declaring plugin, and optional cycles are
 broken deterministically. Declared dependencies are exposed through
 `PluginDescriptor.Dependencies` for diagnostics.
 
+## Disabling plugins
+
+Create `Insider/config/disabled-plugins.txt` to keep a plugin installed while
+preventing its activation. Add one stable plugin ID per line:
+
+```text
+# Waiting for a compatible game update
+com.example.my-plugin
+com.example.experimental
+```
+
+Insider trims each line, ignores empty lines and lines beginning with `#`, and
+compares IDs without case sensitivity. Duplicate entries have no additional
+effect. The file is optional and is read once during bootstrap; changing it
+requires restarting the game.
+
+A disabled plugin is still discovered so Insider can read its metadata, but no
+instance is created and `Load()` is not called. It is logged as skipped and does
+not count as a load failure. A plugin with a required dependency on a disabled
+ID fails before activation with a `(disabled)` diagnostic. An optional
+dependency on that ID does not block activation.
+
+Disabling does not repair an unreadable or structurally invalid assembly because
+metadata discovery necessarily happens first. Remove such a DLL from
+`Insider/plugins` when discovery itself fails. Insider creates the `config`
+directory during installation and preserves its contents during uninstall.
+There is deliberately no hot reload, wildcard, per-file switch, or separate
+configuration language.
+
 ## Version policy
 
 Versions use exactly three non-negative integers: `MAJOR.MINOR.PATCH`. Leading

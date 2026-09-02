@@ -60,6 +60,7 @@ internal static class Program
             ("unloads plugins in reverse order", UnloadsInReverseOrder),
             ("loads required plugin dependencies first", LoadsRequiredPluginDependenciesFirst),
             ("loads present optional plugin dependencies first", LoadsPresentOptionalPluginDependenciesFirst),
+            ("handles dependencies on disabled plugins", HandlesDependenciesOnDisabledPlugins),
             ("rejects invalid plugin version metadata", RejectsInvalidPluginVersionMetadata),
             ("rejects plugin dependencies below the minimum version", RejectsPluginDependenciesBelowMinimumVersion),
             ("allows optional dependencies below the minimum version", AllowsOptionalDependenciesBelowMinimumVersion),
@@ -70,6 +71,7 @@ internal static class Program
             ("fails closed on a missing plugin dependency", FailsClosedOnMissingPluginDependency),
             ("resolves host dependencies from the Insider core", ResolvesHostDependencyFromCore),
             ("bootstraps a plugin directory end to end", BootstrapsPluginDirectoryEndToEnd),
+            ("skips plugins in the bootstrap disable list", SkipsPluginsInBootstrapDisableList),
             ("rejects conflicting plugin dependency versions", RejectsConflictingPluginDependencyVersions),
             ("fails closed on an unsupported managed runtime", FailsClosedOnUnsupportedManagedRuntime),
             ("installs and uninstalls without losing an existing proxy", InstallsAndRestoresExistingProxy),
@@ -808,6 +810,38 @@ internal static class Program
             "Present optional plugin dependency was not loaded first.");
     }
 
+    private static void HandlesDependenciesOnDisabledPlugins()
+    {
+        var context = new TestContext();
+        using var host = new PluginHost(context);
+
+        var results = host.Load(
+            new[]
+            {
+                typeof(FoundationPlugin),
+                typeof(DependentPlugin),
+                typeof(OptionalDependencyPlugin),
+            },
+            new[] { "DEV.INSIDER.TESTS.FOUNDATION" });
+
+        Assert(results.Count == 2, "A disabled plugin unexpectedly produced a load result.");
+        Assert(results.Count(result => result.Succeeded) == 1, "Optional dependency handling was incorrect.");
+        Assert(
+            results.Any(result =>
+                result.Error?.Contains("dev.insider.tests.foundation (disabled)", StringComparison.Ordinal) == true),
+            "A required disabled dependency was not diagnosed.");
+        Assert(
+            host.LoadedPlugins.Count == 1 &&
+            host.LoadedPlugins.First().Id == "dev.insider.tests.optional",
+            "A disabled optional dependency blocked plugin activation.");
+        Assert(
+            PluginGraphEvents.SequenceEqual(new[] { "optional" }),
+            "A disabled provider or its required dependant executed Load().");
+        Assert(
+            context.CapturedLogger.Messages.Contains("Skipped disabled plugin dev.insider.tests.foundation 1.0.0."),
+            "The disabled provider was not logged.");
+    }
+
     private static void RejectsRequiredPluginDependencyCycles()
     {
         var host = CreateHost();
@@ -882,6 +916,38 @@ internal static class Program
         Assert(File.ReadAllText(result.LogPath).Contains("is not present under", StringComparison.Ordinal), "Missing dependency was not diagnosed.");
     }
 
+    private static void SkipsPluginsInBootstrapDisableList()
+    {
+        using var fixture = BootstrapFixtureWorkspace.Create(withMonoRuntime: true);
+        fixture.InstallPluginFixture();
+        fixture.WriteDisabledPluginList(
+            "# One plugin id per line.",
+            string.Empty,
+            "  DEV.INSIDER.TESTS.BOOTSTRAP-FIXTURE  ",
+            "dev.insider.tests.bootstrap-fixture");
+
+        using var session = new BootstrapSession();
+        var result = session.Start(fixture.GameDirectory);
+
+        Assert(result.IsSupported, "Unity Mono fixture was not recognized as supported.");
+        Assert(result.LoadedPluginCount == 0, "A disabled plugin was loaded.");
+        Assert(result.FailedPluginCount == 0, "A disabled plugin was reported as failed.");
+        Assert(
+            !File.Exists(Path.Combine(result.InsiderDirectory, "fixture-loaded.txt")),
+            "A disabled plugin executed Load().");
+
+        var log = File.ReadAllText(result.LogPath);
+        Assert(
+            log.Contains("Read 1 disabled plugin id(s)", StringComparison.Ordinal),
+            "Comments, blanks, duplicates, or case variants were not normalized.");
+        Assert(
+            log.Contains("Skipped disabled plugin dev.insider.tests.bootstrap-fixture 1.0.0.", StringComparison.Ordinal),
+            "The disabled plugin was not diagnosed.");
+        Assert(
+            log.Contains("Plugin scan completed: 0 loaded, 0 failed.", StringComparison.Ordinal),
+            "The bootstrap summary counted a disabled plugin as a failure.");
+    }
+
     private static void ResolvesHostDependencyFromCore()
     {
         using var fixture = BootstrapFixtureWorkspace.Create(withMonoRuntime: true);
@@ -941,12 +1007,17 @@ internal static class Program
         Assert(installed.State == InsiderInstallationState.Installed, "Installation did not report success.");
         Assert(File.ReadAllText(Path.Combine(fixture.GameDirectory, "version.dll")) == "insider-native", "Native proxy was not installed.");
         Assert(Directory.Exists(Path.Combine(fixture.GameDirectory, "Insider", "plugins")), "Plugin directory was not created.");
+        var configDirectory = Path.Combine(fixture.GameDirectory, "Insider", "config");
+        Assert(Directory.Exists(configDirectory), "Plugin configuration directory was not created.");
+        var disabledPluginPath = Path.Combine(configDirectory, DisabledPluginList.FileName);
+        File.WriteAllText(disabledPluginPath, "dev.insider.tests.bootstrap-fixture");
 
         var removed = installer.Uninstall(fixture.GameExecutable);
 
         Assert(removed.State == InsiderInstallationState.NotInstalled, "Uninstall did not complete.");
         Assert(File.ReadAllText(Path.Combine(fixture.GameDirectory, "version.dll")) == "original-proxy", "Original proxy was not restored.");
         Assert(!File.Exists(Path.Combine(fixture.GameDirectory, "Insider", "install.json")), "Manifest was not removed.");
+        Assert(File.Exists(disabledPluginPath), "Uninstall removed the user-owned disabled-plugin list.");
     }
 
     private static void RefusesToRemoveModifiedFiles()
@@ -1097,6 +1168,8 @@ internal sealed class BootstrapFixtureWorkspace : IDisposable
 
     public string CoreDirectory => Path.Combine(GameDirectory, "Insider", "core");
 
+    public string ConfigDirectory => Path.Combine(GameDirectory, "Insider", "config");
+
     public static BootstrapFixtureWorkspace Create(bool withMonoRuntime)
     {
         var root = Path.Combine(Path.GetTempPath(), "insider-bootstrap-tests", Guid.NewGuid().ToString("N"));
@@ -1143,6 +1216,14 @@ internal sealed class BootstrapFixtureWorkspace : IDisposable
         File.Copy(
             GetFixturePath("dependencies", "v1", "Insider.DependencyFixture.dll"),
             Path.Combine(CoreDirectory, "Insider.DependencyFixture.dll"));
+    }
+
+    public void WriteDisabledPluginList(params string[] lines)
+    {
+        Directory.CreateDirectory(ConfigDirectory);
+        File.WriteAllLines(
+            Path.Combine(ConfigDirectory, DisabledPluginList.FileName),
+            lines);
     }
 
     public void Dispose()
