@@ -84,3 +84,6 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cleanup, plus a real Unity Mono `Assembly-CSharp` rewrite and live removal.
 - Deterministic resolution of public Insider and MonoMod/Cecil dependencies from
   the host-owned `Insider/core` directory, without plugin-private copies.
+- Loader-owned Unity Mono main-thread dispatch through `context.MainThread`,
+  with FIFO scheduling, per-plugin cancellation and failure containment,
+  managed coverage, real Unity player verification, and usage documentation.

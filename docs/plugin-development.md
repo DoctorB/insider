@@ -281,8 +281,30 @@ hooking APIs.
 Insider reads managed images into memory and does not intentionally keep the
 source DLL files open.
 
-## Bootstrap timing
+## Unity main thread
 
-Plugins are currently loaded by the early bootstrap thread. Do not assume that
-Unity APIs are initialized or that `Load()` runs on Unity's main thread. Main
-thread scheduling will be introduced as a separate runtime integration layer.
+Plugins are loaded by Insider's early bootstrap thread. Do not call Unity APIs
+directly from `Load()`. Post the smallest Unity-facing operation through the
+plugin context instead:
+
+```csharp
+public void Load(IInsiderContext context)
+{
+    context.MainThread.Post(() =>
+    {
+        context.Logger.Info("Running on Unity's main thread.");
+    });
+}
+```
+
+`Post` is thread-safe and accepts work before the Unity pump is ready. Callbacks
+run in FIFO order, and work posted while a queue snapshot is executing waits for
+the next frame. `IsReady` reports whether Insider has observed the pump;
+`IsCurrent` reports whether the caller is currently on its thread.
+
+Pending callbacks are scoped to the plugin and become inert after `Unload()` or
+a failed `Load()`. `Unload()` itself does not run on Unity's main thread, and a
+callback posted during it is invalidated when unloading completes. Keep posted
+callbacks short and release Unity resources before unload. The complete
+contract, limitations, and Unity-reference guidance are in
+[main-thread.md](main-thread.md).
