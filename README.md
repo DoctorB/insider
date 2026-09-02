@@ -25,6 +25,7 @@ The first implementation target is intentionally narrow:
   for instruction matching and rewriting
 - A loader-owned `context.MainThread` dispatcher for scheduling Unity work from
   the early bootstrap thread
+- An optional text list for disabling plugins by ID without moving their DLLs
 
 IL2CPP and additional operating systems are planned as separate runtime
 backends. They are not supported yet.
@@ -85,8 +86,9 @@ dotnet insider.dll uninstall "C:\Games\Example\Example.exe"
 
 Installation is deliberately limited to detected Windows x64 Unity/Mono games.
 It records hashes in `Insider/install.json`, never removes plugins or logs, and
-refuses to uninstall modified loader files unless `--force` is explicitly used.
-The pre-alpha CLI package requires the .NET 10 runtime.
+never removes user configuration. It refuses to uninstall modified loader files
+unless `--force` is explicitly used. The pre-alpha CLI package requires the
+.NET 10 runtime.
 
 ## Build
 
@@ -164,6 +166,22 @@ plugin is activated:
 
 Versions deliberately use only `MAJOR.MINOR.PATCH`, and dependencies support one
 simple constraint: an optional minimum version.
+
+To disable a plugin without deleting its DLL, add its ID to
+`Insider/config/disabled-plugins.txt`, one ID per line:
+
+```text
+# Temporarily disabled while updating the game
+com.example.my-plugin
+```
+
+Blank lines, comment lines beginning with `#`, duplicate IDs, and case
+differences are ignored. Disabled plugins are discovered but never activated and
+do not count as load failures. A plugin whose required dependency is disabled
+fails with an explicit diagnostic; optional dependencies remain optional. The
+file is read once at startup, has no hot reload, and is preserved by uninstall.
+See the [plugin development guide](docs/plugin-development.md#disabling-plugins)
+for the complete behavior.
 
 The hooking API is deliberately small. Plugins can apply a managed method or
 instance-constructor detour through

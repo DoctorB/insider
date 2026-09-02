@@ -87,3 +87,5 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Loader-owned Unity Mono main-thread dispatch through `context.MainThread`,
   with FIFO scheduling, per-plugin cancellation and failure containment,
   managed coverage, real Unity player verification, and usage documentation.
+- Optional `Insider/config/disabled-plugins.txt` filtering by plugin ID, with
+  deterministic dependency diagnostics and preservation during uninstall.

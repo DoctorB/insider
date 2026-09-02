@@ -34,10 +34,12 @@ internal sealed class BootstrapSession : IDisposable
             var normalizedGameDirectory = Path.GetFullPath(gameDirectory);
             var insiderDirectory = Path.Combine(normalizedGameDirectory, "Insider");
             var pluginDirectory = Path.Combine(insiderDirectory, "plugins");
+            var configDirectory = Path.Combine(insiderDirectory, "config");
             var logDirectory = Path.Combine(insiderDirectory, "logs");
             var logPath = Path.Combine(logDirectory, "insider.log");
 
             Directory.CreateDirectory(pluginDirectory);
+            Directory.CreateDirectory(configDirectory);
             Directory.CreateDirectory(logDirectory);
 
             var logger = new FileLogger(logPath);
@@ -72,7 +74,15 @@ internal sealed class BootstrapSession : IDisposable
                 hooks);
             _pluginHost = new PluginHost(context);
 
-            var results = _pluginHost.LoadDirectory(pluginDirectory);
+            var disabledPluginPath = Path.Combine(configDirectory, DisabledPluginList.FileName);
+            var disabledPluginIds = DisabledPluginList.Read(disabledPluginPath);
+            if (disabledPluginIds.Count > 0)
+            {
+                logger.Info(
+                    $"Read {disabledPluginIds.Count} disabled plugin id(s) from '{disabledPluginPath}'.");
+            }
+
+            var results = _pluginHost.LoadDirectory(pluginDirectory, disabledPluginIds);
             _mainThread.Start();
             var loaded = 0;
             var failed = 0;
