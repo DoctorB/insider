@@ -10,6 +10,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Insider.Abstractions/Insider.Abstractions.csproj" />
     <ProjectReference Include="../../src/Insider.Bootstrap/Insider.Bootstrap.csproj" />
+    <ProjectReference Include="../../src/Insider.Cli/Insider.Cli.csproj" />
     <ProjectReference Include="../../src/Insider.Hooking/Insider.Hooking.csproj" />
     <ProjectReference Include="../../src/Insider.Installation/Insider.Installation.csproj" />
     <ProjectReference Include="../../src/Insider.Loader/Insider.Loader.csproj" />

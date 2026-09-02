@@ -15,6 +15,11 @@ Plugins belong in <game>\Insider\plugins.
 Managed plugin dependencies belong in <game>\Insider\plugins\dependencies.
 Optional disabled plugin ids belong one per line in
 <game>\Insider\config\disabled-plugins.txt.
+Manage that list with:
+  dotnet insider.dll plugins disable "C:\Path\Game.exe" com.example.plugin
+  dotnet insider.dll plugins disabled "C:\Path\Game.exe"
+  dotnet insider.dll plugins enable "C:\Path\Game.exe" com.example.plugin
+Changes take effect on the next game start.
 Logs are written to <game>\Insider\logs.
 Managed detours and IL hooks use the loader-owned MonoMod.RuntimeDetour backend
 and are removed automatically when their owning plugin unloads.

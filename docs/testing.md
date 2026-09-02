@@ -30,6 +30,9 @@ Bootstrap coverage also parses comments, blanks, duplicate IDs, whitespace, and
 case variants from `disabled-plugins.txt`; it verifies that the matching plugin
 does not run and is not counted as failed. Installation coverage verifies that
 the `config` directory is created and user-owned disable lists survive uninstall.
+A CLI-management case exercises all three `plugins` commands, idempotent
+updates, case-insensitive duplicate removal, comment preservation, sorted
+listing, invalid IDs, and rejection when Insider is not installed.
 A separate dependency-graph case verifies the required `(disabled)` diagnostic
 and confirms that a disabled optional dependency does not block activation.
 
@@ -92,7 +95,7 @@ claim.
 The managed suite uses a minimal dynamic assembly named
 `UnityEngine.CoreModule` to verify discovery of the expected synchronization
 pump without taking a Unity dependency. Together with the hook tests, the suite
-currently contains 56 passing tests.
+currently contains 57 passing tests.
 
 The real-player phase proves that `Load()` runs on Insider's bootstrap thread
 and that a callback posted through `context.MainThread` later runs on Unity's
@@ -105,6 +108,7 @@ main thread. It checks `IsReady`, `IsCurrent`, the active
 checks the native bootstrap, managed core, CLI runtime files and package README;
 requires the complete hooking runtime and license notices; rejects test
 assemblies and source files; and runs the packaged CLI help command.
+The help smoke test also requires every plugin-management command to be present.
 
 ### Real Unity Mono smoke test
 

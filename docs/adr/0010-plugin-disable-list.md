@@ -27,10 +27,17 @@ diagnostic; an optional dependency does not block activation.
 The installer creates `Insider/config` but does not own files written there.
 Uninstall therefore preserves the directory and its contents.
 
+The out-of-process CLI exposes `plugins disable`, `plugins enable`, and
+`plugins disabled` over this same file. It preserves comments and unrelated
+lines, treats changes case-insensitively and idempotently, and replaces a changed
+file atomically. It does not communicate with or mutate a running game, so every
+change still requires a restart.
+
 ## Consequences
 
 - A plugin can be disabled predictably without moving managed files.
 - Changes take effect only after restarting the game.
+- Users can manage exact plugin IDs without editing the file by hand.
 - Assembly discovery still occurs, so disabling cannot hide an unreadable or
   structurally invalid assembly.
 - There are no wildcards, filename rules, hot reload, UI, or new serialization

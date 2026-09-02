@@ -94,8 +94,18 @@ if ($LASTEXITCODE -ne 0) {
     throw "Packaged CLI smoke test failed with exit code $LASTEXITCODE.`n$($helpOutput -join [Environment]::NewLine)"
 }
 
-if (-not (($helpOutput -join [Environment]::NewLine).Contains("Insider Mod Loader CLI"))) {
-    throw "Packaged CLI smoke test returned unexpected output."
+$helpText = $helpOutput -join [Environment]::NewLine
+$requiredHelpText = @(
+    "Insider Mod Loader CLI",
+    "plugins disable",
+    "plugins enable",
+    "plugins disabled"
+)
+
+foreach ($expectedText in $requiredHelpText) {
+    if (-not $helpText.Contains($expectedText)) {
+        throw "Packaged CLI help is missing '$expectedText'."
+    }
 }
 
 Write-Host "Verified Insider package at $packagePath"

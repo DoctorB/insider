@@ -86,7 +86,10 @@ Mono runtime.
 Out-of-process tooling for inspecting, installing, verifying, and removing
 Insider. Installations are described by a manifest containing SHA-256 hashes.
 An existing root `version.dll` is preserved and restored; unknown core files are
-never overwritten.
+never overwritten. The CLI also lists, disables, and enables plugins by stable
+ID through the existing `Insider/config/disabled-plugins.txt` format. Mutations
+preserve user comments and unrelated lines, use a same-directory atomic replace,
+and never attempt to change the state of a running game.
 
 ### Insider.Hooking
 
