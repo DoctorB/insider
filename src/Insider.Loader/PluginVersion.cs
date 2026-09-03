@@ -39,6 +39,16 @@ internal readonly struct PluginVersion : IComparable<PluginVersion>
         return true;
     }
 
+    public static PluginVersion FromAssemblyVersion(Version? version)
+    {
+        return version is null
+            ? new PluginVersion(0, 0, 0)
+            : new PluginVersion(
+                Math.Max(version.Major, 0),
+                Math.Max(version.Minor, 0),
+                Math.Max(version.Build, 0));
+    }
+
     public int CompareTo(PluginVersion other)
     {
         var majorComparison = Major.CompareTo(other.Major);

@@ -66,6 +66,9 @@ internal static class Program
             ("loads present optional plugin dependencies first", LoadsPresentOptionalPluginDependenciesFirst),
             ("handles dependencies on disabled plugins", HandlesDependenciesOnDisabledPlugins),
             ("rejects invalid plugin version metadata", RejectsInvalidPluginVersionMetadata),
+            ("rejects invalid minimum Insider versions", RejectsInvalidMinimumInsiderVersions),
+            ("rejects plugins requiring newer Insider before activation", RejectsPluginsRequiringNewerInsiderBeforeActivation),
+            ("loads plugins compatible with current Insider", LoadsPluginsCompatibleWithCurrentInsider),
             ("rejects plugin dependencies below the minimum version", RejectsPluginDependenciesBelowMinimumVersion),
             ("allows optional dependencies below the minimum version", AllowsOptionalDependenciesBelowMinimumVersion),
             ("rejects missing required plugin dependencies", RejectsMissingRequiredPluginDependencies),
@@ -874,6 +877,40 @@ internal static class Program
             "Minimum-version mismatch was not diagnosed.");
     }
 
+    private static void RejectsInvalidMinimumInsiderVersions()
+    {
+        var result = CreateHost().Load(typeof(InvalidMinimumInsiderVersionPlugin));
+
+        Assert(!result.Succeeded, "Plugin with an invalid minimum Insider version was loaded.");
+        Assert(InvalidMinimumInsiderVersionPlugin.ConstructionCount == 0, "Incompatible plugin was instantiated.");
+        Assert(
+            result.Error?.Contains("invalid minimum Insider version '1.0'", StringComparison.Ordinal) == true,
+            "Invalid minimum Insider version was not diagnosed clearly.");
+    }
+
+    private static void RejectsPluginsRequiringNewerInsiderBeforeActivation()
+    {
+        var result = CreateHost().Load(typeof(RequiresNewerInsiderPlugin));
+
+        Assert(!result.Succeeded, "Plugin requiring a newer Insider version was loaded.");
+        Assert(RequiresNewerInsiderPlugin.ConstructionCount == 0, "Incompatible plugin was instantiated.");
+        Assert(RequiresNewerInsiderPlugin.LoadCount == 0, "Incompatible plugin executed Load().");
+        Assert(
+            result.Error?.Contains("requires Insider >= 999.0.0, but this loader is", StringComparison.Ordinal) == true,
+            "Insider version mismatch was not diagnosed clearly.");
+    }
+
+    private static void LoadsPluginsCompatibleWithCurrentInsider()
+    {
+        var result = CreateHost().Load(typeof(CompatibleInsiderVersionPlugin));
+
+        Assert(result.Succeeded, result.Error ?? "Plugin compatible with Insider did not load.");
+        Assert(CompatibleInsiderVersionPlugin.LoadCount == 1, "Compatible plugin did not execute Load().");
+        Assert(
+            result.Plugin?.MinimumInsiderVersion == "0.1.0",
+            "Plugin descriptor did not expose the minimum Insider version.");
+    }
+
     private static void AllowsOptionalDependenciesBelowMinimumVersion()
     {
         var host = CreateHost();
@@ -1259,7 +1296,7 @@ internal static class Program
             });
 
         var report = GameDiagnoser.Diagnose(fixture.GameExecutable);
-        Assert(report.Plugins.Count == 11, "The diagnostic catalog did not find every fixture plugin.");
+        Assert(report.Plugins.Count == 13, "The diagnostic catalog did not find every fixture plugin.");
         Assert(
             report.Plugins.Single(plugin => plugin.Id == "dev.insider.tests.diagnostic-foundation").State ==
                 PluginDiagnosticState.Ready,
@@ -1273,6 +1310,17 @@ internal static class Program
         Assert(optional.State == PluginDiagnosticState.Ready, "A missing optional dependency blocked a plugin.");
         Assert(optional.Dependencies.Single().Status.Contains("allowed", StringComparison.Ordinal),
             "A missing optional dependency was not explained.");
+        var compatibleInsider = report.Plugins.Single(
+            plugin => plugin.Id == "dev.insider.tests.diagnostic-compatible-insider");
+        Assert(compatibleInsider.State == PluginDiagnosticState.Ready, "A plugin compatible with Insider was not ready.");
+        Assert(
+            compatibleInsider.MinimumInsiderVersion == "0.1.0",
+            "The diagnostic report did not expose the minimum Insider version.");
+        var incompatibleInsider = report.Plugins.Single(
+            plugin => plugin.Id == "dev.insider.tests.diagnostic-needs-newer-insider");
+        Assert(
+            incompatibleInsider.Issues.Any(issue => issue.Contains("Insider >= 999.0.0", StringComparison.Ordinal)),
+            $"An incompatible Insider version was not diagnosed: {string.Join("; ", incompatibleInsider.Issues)}");
         Assert(
             report.Plugins.Single(plugin => plugin.Id == "dev.insider.tests.diagnostic-disabled").State ==
                 PluginDiagnosticState.Disabled,
@@ -1407,6 +1455,10 @@ internal static class Program
         OptionalDependencyPlugin.LoadCount = 0;
         InvalidVersionPlugin.LoadCount = 0;
         InvalidMinimumVersionPlugin.LoadCount = 0;
+        InvalidMinimumInsiderVersionPlugin.ConstructionCount = 0;
+        RequiresNewerInsiderPlugin.ConstructionCount = 0;
+        RequiresNewerInsiderPlugin.LoadCount = 0;
+        CompatibleInsiderVersionPlugin.LoadCount = 0;
         RequiresNewerFoundationPlugin.LoadCount = 0;
         OptionalNewerFoundationPlugin.LoadCount = 0;
         ManagedRefReturnHookTarget.Reset();
@@ -1831,6 +1883,74 @@ public sealed class InvalidVersionPlugin : IInsiderPlugin
 [InsiderPlugin("dev.insider.tests.invalid-minimum", "Invalid Minimum", "1.0.0")]
 [InsiderPluginDependency("dev.insider.tests.foundation", "1.0")]
 public sealed class InvalidMinimumVersionPlugin : IInsiderPlugin
+{
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin(
+    "dev.insider.tests.invalid-minimum-insider",
+    "Invalid Minimum Insider",
+    "1.0.0",
+    MinimumInsiderVersion = "1.0")]
+public sealed class InvalidMinimumInsiderVersionPlugin : IInsiderPlugin
+{
+    public InvalidMinimumInsiderVersionPlugin()
+    {
+        ConstructionCount++;
+    }
+
+    public static int ConstructionCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin(
+    "dev.insider.tests.requires-newer-insider",
+    "Requires Newer Insider",
+    "1.0.0",
+    MinimumInsiderVersion = "999.0.0")]
+public sealed class RequiresNewerInsiderPlugin : IInsiderPlugin
+{
+    public RequiresNewerInsiderPlugin()
+    {
+        ConstructionCount++;
+    }
+
+    public static int ConstructionCount { get; set; }
+
+    public static int LoadCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        LoadCount++;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin(
+    "dev.insider.tests.compatible-insider",
+    "Compatible Insider",
+    "1.0.0",
+    MinimumInsiderVersion = "0.1.0")]
+public sealed class CompatibleInsiderVersionPlugin : IInsiderPlugin
 {
     public static int LoadCount { get; set; }
 

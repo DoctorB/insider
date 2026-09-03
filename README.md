@@ -28,6 +28,7 @@ The first implementation target is intentionally narrow:
 - An optional text list for disabling plugins by ID without moving their DLLs
 - Loader-assigned plugin, configuration, and data directories exposed through
   each plugin context
+- Optional minimum Insider version metadata checked before plugin activation
 - Fixed current/previous session logs with no logging framework or configuration
 
 IL2CPP and additional operating systems are planned as separate runtime
@@ -172,7 +173,11 @@ Plugins implement `IInsiderPlugin` and declare metadata with
 ```csharp
 using Insider;
 
-[InsiderPlugin("com.example.hello", "Hello Insider", "0.1.0")]
+[InsiderPlugin(
+    "com.example.hello",
+    "Hello Insider",
+    "0.1.0",
+    MinimumInsiderVersion = "0.1.0")]
 public sealed class HelloPlugin : IInsiderPlugin
 {
     public void Load(IInsiderContext context)
@@ -218,6 +223,12 @@ plugin is activated:
 
 Versions deliberately use only `MAJOR.MINOR.PATCH`, and dependencies support one
 simple constraint: an optional minimum version.
+
+`MinimumInsiderVersion` is optional and inclusive. When present, Insider checks
+it before constructing the plugin or calling `Load()`; a newer required version
+produces a clear load failure. No range-expression language is involved. See
+[plugin/loader compatibility](docs/plugin-development.md#pluginloader-compatibility)
+for the exact syntax and lifecycle behavior.
 
 To disable a plugin without deleting its DLL, add its ID to
 `Insider/config/disabled-plugins.txt`, one ID per line:
