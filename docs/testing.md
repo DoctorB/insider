@@ -25,8 +25,10 @@ manipulators, detour coexistence, value-type constructor rewriting, target and
 manipulator validation, stable failures, plugin ownership, and retryable cleanup.
 It also verifies FIFO main-thread dispatch, next-pump deferral, callback failure
 containment, readiness and thread identity, plugin-scoped logging, pending-work
-cancellation, dispatcher hook cleanup, and plugin-scoped directory creation,
-isolation, traversal-safe naming, ownership, and persistence after unload.
+cancellation, ordered per-pump updates, disposable update registrations,
+automatic update cleanup, dispatcher hook cleanup, and plugin-scoped directory
+creation, isolation, traversal-safe naming, ownership, and persistence after
+unload.
 Bootstrap coverage also parses comments, blanks, duplicate IDs, whitespace, and
 case variants from `disabled-plugins.txt`; it verifies that the matching plugin
 does not run and is not counted as failed. Installation coverage verifies that
@@ -98,12 +100,14 @@ claim.
 The managed suite uses a minimal dynamic assembly named
 `UnityEngine.CoreModule` to verify discovery of the expected synchronization
 pump without taking a Unity dependency. Together with the hook tests, the suite
-currently contains 58 passing tests.
+currently contains 59 passing tests.
 
 The real-player phase proves that `Load()` runs on Insider's bootstrap thread
 and that a callback posted through `context.MainThread` later runs on Unity's
 main thread. It checks `IsReady`, `IsCurrent`, the active
-`UnitySynchronizationContext`, and `UnityEngine.Application.isPlaying`.
+`UnitySynchronizationContext`, and `UnityEngine.Application.isPlaying`. It also
+runs a registered update on three consecutive pumps and disposes it from its own
+callback.
 
 ### Windows package smoke test
 
@@ -154,11 +158,13 @@ The test succeeds only when all of these observations are present:
 18. a callback posted during plugin load runs on Unity's main thread with
     `IsReady`, `IsCurrent`, the Unity synchronization context, and
     `Application.isPlaying` all verified;
-19. the test plugin writes its load marker and scoped log messages;
-20. the other plugin-owned detours remain active through the plugin's
+19. a per-frame callback runs on three consecutive Unity pumps, confirms the
+    main thread, and removes itself through its disposable handle;
+20. the test plugin writes its load marker and scoped log messages;
+21. the other plugin-owned detours remain active through the plugin's
     `Unload()` callback;
-21. the managed log contains no error entries;
-22. the installed files still pass the CLI status check.
+22. the managed log contains no error entries;
+23. the installed files still pass the CLI status check.
 
 This test is local rather than part of GitHub Actions because it needs an
 installed and licensed Unity Editor. Its generated project state, package, and
@@ -168,14 +174,14 @@ player stay below `artifacts/unity-mono-smoke` or ignored Unity directories.
 
 The fake native runtime cannot execute managed IL or reproduce Unity's Mono
 fork. The real-player fixture covers one Unity release and a deliberately empty
-game. It validates one main-thread callback and a read of
-`Application.isPlaying`, but not arbitrary or game-specific Unity API behavior,
-hooks against UnityEngine or production game code, ordered chains or chains
-involving multiple real plugins, constructor hooks inside Unity, complex method
-signatures beyond those listed above, removal-failure retry paths inside Unity,
-value-type constructors, complex IL control flow, anti-cheat interaction, or
-other Unity/Mono versions. Broader real-player evidence is still required before
-compatibility can move from experimental to supported.
+game. It validates one posted callback, one short per-frame registration, and a
+read of `Application.isPlaying`, but not arbitrary or game-specific Unity API
+behavior, hooks against UnityEngine or production game code, ordered chains or
+chains involving multiple real plugins, constructor hooks inside Unity, complex
+method signatures beyond those listed above, removal-failure retry paths inside
+Unity, value-type constructors, complex IL control flow, anti-cheat interaction,
+or other Unity/Mono versions. Broader real-player evidence is still required
+before compatibility can move from experimental to supported.
 
 ## Run locally
 

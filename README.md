@@ -23,8 +23,8 @@ The first implementation target is intentionally narrow:
   returns, and `ref self` for value-type instance methods
 - Managed IL hooks through `context.Hooks.ModifyIl`, with MonoMod's `ILContext`
   for instruction matching and rewriting
-- A loader-owned `context.MainThread` dispatcher for scheduling Unity work from
-  the early bootstrap thread
+- A loader-owned `context.MainThread` dispatcher for queued and per-frame Unity
+  work from the early bootstrap thread
 - An optional text list for disabling plugins by ID without moving their DLLs
 - Loader-assigned plugin, configuration, and data directories exposed through
   each plugin context
@@ -136,8 +136,8 @@ plugin, applies managed detours including one against the player's
 `Assembly-CSharp`, rewrites a second game method through `ModifyIl`, removes the
 two-node detour chain and IL hook while the player is still running, verifies
 both original results are restored, dispatches a plugin callback through
-Unity's synchronization pump, checks native and managed diagnostics, and checks
-plugin unload on process exit:
+Unity's synchronization pump, runs and removes a per-frame update callback,
+checks native and managed diagnostics, and checks plugin unload on process exit:
 
 ```powershell
 ./eng/Test-UnityMonoSmoke.ps1
@@ -245,10 +245,11 @@ boundary. The [runtime hooking guide](docs/hooking.md) documents detour
 signatures, IL patterns, lifecycle, and examples.
 
 `Load()` runs on Insider's bootstrap thread, not Unity's main thread. Schedule
-the smallest Unity-facing callback with `context.MainThread.Post(...)` instead
-of calling Unity APIs directly during activation. Pending callbacks belong to
-the plugin and are invalidated when it unloads. See the
-[Unity main-thread guide](docs/main-thread.md) for queue semantics and examples.
+one Unity-facing callback with `context.MainThread.Post(...)`, or register short
+per-frame work with `context.MainThread.RegisterUpdate(...)`. Update
+registrations return an `IDisposable` for early removal; queued and repeating
+callbacks belong to the plugin and are invalidated when it unloads. See the
+[Unity main-thread guide](docs/main-thread.md) for lifecycle rules and examples.
 
 Messages written through `context.Logger` are automatically prefixed with the
 plugin ID, keeping the shared game log readable without extra logging APIs.
