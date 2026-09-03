@@ -18,6 +18,8 @@ game or activating plugin code.
 
 Plugins belong in <game>\Insider\plugins.
 Managed plugin dependencies belong in <game>\Insider\plugins\dependencies.
+Plugins may set InsiderPluginAttribute.MinimumInsiderVersion to one inclusive
+MAJOR.MINOR.PATCH minimum. Incompatible plugins fail before construction or Load().
 Each plugin receives its entry-assembly directory through context.PluginDirectory.
 Its private persistent directories are exposed through context.ConfigDirectory
 and context.DataDirectory. Plugins own the files below those two directories;

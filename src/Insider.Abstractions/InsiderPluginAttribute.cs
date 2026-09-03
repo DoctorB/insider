@@ -5,6 +5,8 @@ namespace Insider;
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
 public sealed class InsiderPluginAttribute : Attribute
 {
+    private string? _minimumInsiderVersion;
+
     public InsiderPluginAttribute(string id, string name, string version)
     {
         Id = RequireValue(id, nameof(id));
@@ -17,6 +19,12 @@ public sealed class InsiderPluginAttribute : Attribute
     public string Name { get; }
 
     public string Version { get; }
+
+    public string? MinimumInsiderVersion
+    {
+        get { return _minimumInsiderVersion; }
+        set { _minimumInsiderVersion = value?.Trim(); }
+    }
 
     private static string RequireValue(string value, string parameterName)
     {

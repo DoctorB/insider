@@ -9,6 +9,9 @@ namespace Insider.Cli;
 
 internal static class PluginDirectoryDiagnoser
 {
+    private static readonly DiagnosticVersion CurrentInsiderVersion = DiagnosticVersion.FromAssemblyVersion(
+        typeof(InsiderPluginAttribute).Assembly.GetName().Version);
+
     public static PluginDirectoryDiagnosticReport Inspect(
         string pluginDirectory,
         string coreDirectory,
@@ -100,6 +103,7 @@ internal static class PluginDirectoryDiagnoser
                     type.Name,
                     "unknown",
                     null,
+                    null,
                     assemblyPath,
                     hasMetadata: false,
                     Array.Empty<PluginDependencyCandidate>());
@@ -113,6 +117,7 @@ internal static class PluginDirectoryDiagnoser
                 metadata.Name,
                 metadata.Version,
                 null,
+                metadata.MinimumInsiderVersion,
                 assemblyPath,
                 hasMetadata: true,
                 CreateDependencies(type));
@@ -127,6 +132,20 @@ internal static class PluginDirectoryDiagnoser
             }
 
             candidate.ParsedVersion = parsedVersion;
+            if (metadata.MinimumInsiderVersion is not null)
+            {
+                if (!DiagnosticVersion.TryParse(metadata.MinimumInsiderVersion, out var minimumInsiderVersion))
+                {
+                    candidate.Issues.Add(
+                        $"Minimum Insider version '{metadata.MinimumInsiderVersion}' is invalid; expected MAJOR.MINOR.PATCH.");
+                }
+                else if (CurrentInsiderVersion.CompareTo(minimumInsiderVersion) < 0)
+                {
+                    candidate.Issues.Add(
+                        $"Requires Insider >= {minimumInsiderVersion}, but this Insider build is {CurrentInsiderVersion}.");
+                }
+            }
+
             var duplicateDependency = candidate.Dependencies
                 .GroupBy(dependency => dependency.Id, StringComparer.OrdinalIgnoreCase)
                 .FirstOrDefault(group => group.Count() > 1);
@@ -152,6 +171,7 @@ internal static class PluginDirectoryDiagnoser
                 fallbackId,
                 type.Name,
                 "unknown",
+                null,
                 null,
                 assemblyPath,
                 hasMetadata: false,
@@ -420,6 +440,7 @@ internal sealed class PluginDiagnostic
         string id,
         string name,
         string version,
+        string? minimumInsiderVersion,
         string assemblyPath,
         PluginDiagnosticState state,
         IReadOnlyList<PluginDependencyDiagnostic> dependencies,
@@ -428,6 +449,7 @@ internal sealed class PluginDiagnostic
         Id = id;
         Name = name;
         Version = version;
+        MinimumInsiderVersion = minimumInsiderVersion;
         AssemblyPath = assemblyPath;
         State = state;
         Dependencies = dependencies;
@@ -439,6 +461,8 @@ internal sealed class PluginDiagnostic
     public string Name { get; }
 
     public string Version { get; }
+
+    public string? MinimumInsiderVersion { get; }
 
     public string AssemblyPath { get; }
 
@@ -475,6 +499,7 @@ internal sealed class PluginCandidateDiagnostic
         string name,
         string version,
         DiagnosticVersion? parsedVersion,
+        string? minimumInsiderVersion,
         string assemblyPath,
         bool hasMetadata,
         IReadOnlyList<PluginDependencyCandidate> dependencies)
@@ -483,6 +508,7 @@ internal sealed class PluginCandidateDiagnostic
         Name = name;
         Version = version;
         ParsedVersion = parsedVersion;
+        MinimumInsiderVersion = minimumInsiderVersion;
         AssemblyPath = assemblyPath;
         HasMetadata = hasMetadata;
         Dependencies = dependencies;
@@ -495,6 +521,8 @@ internal sealed class PluginCandidateDiagnostic
     public string Version { get; }
 
     public DiagnosticVersion? ParsedVersion { get; set; }
+
+    public string? MinimumInsiderVersion { get; }
 
     public string AssemblyPath { get; }
 
@@ -512,6 +540,7 @@ internal sealed class PluginCandidateDiagnostic
             Id,
             Name,
             Version,
+            MinimumInsiderVersion,
             AssemblyPath,
             State,
             Dependencies.Select(dependency => new PluginDependencyDiagnostic(
@@ -579,6 +608,16 @@ internal readonly struct DiagnosticVersion : IComparable<DiagnosticVersion>
             SetVersion(major, minor, patch, out version);
     }
 
+    public static DiagnosticVersion FromAssemblyVersion(Version? version)
+    {
+        return version is null
+            ? new DiagnosticVersion(0, 0, 0)
+            : new DiagnosticVersion(
+                Math.Max(version.Major, 0),
+                Math.Max(version.Minor, 0),
+                Math.Max(version.Build, 0));
+    }
+
     public int CompareTo(DiagnosticVersion other)
     {
         var major = Major.CompareTo(other.Major);
@@ -589,6 +628,16 @@ internal readonly struct DiagnosticVersion : IComparable<DiagnosticVersion>
 
         var minor = Minor.CompareTo(other.Minor);
         return minor != 0 ? minor : Patch.CompareTo(other.Patch);
+    }
+
+    public override string ToString()
+    {
+        return string.Format(
+            System.Globalization.CultureInfo.InvariantCulture,
+            "{0}.{1}.{2}",
+            Major,
+            Minor,
+            Patch);
     }
 
     private static bool TryParsePart(string part, out int value)

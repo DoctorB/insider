@@ -2,7 +2,11 @@ using Insider;
 
 namespace HelloInsider;
 
-[InsiderPlugin("dev.insider.hello", "Hello Insider", "0.1.0")]
+[InsiderPlugin(
+    "dev.insider.hello",
+    "Hello Insider",
+    "0.1.0",
+    MinimumInsiderVersion = "0.1.0")]
 public sealed class HelloPlugin : IInsiderPlugin
 {
     private IInsiderLogger? _logger;

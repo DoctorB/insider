@@ -11,7 +11,8 @@ The executable suite in `tests/Insider.Tests` covers plugin discovery,
 metadata, duplicate identifiers, failure containment, reverse unload order,
 required and optional plugin dependency ordering, missing dependencies, cycles,
 failure propagation, numeric version validation, minimum-version enforcement,
-plugin-scoped logging, managed detour application/removal, detour cleanup after
+minimum Insider version validation before construction and `Load()`, compatible
+requirement exposure, plugin-scoped logging, managed detour application/removal, detour cleanup after
 unload or failed load, exact-signature rejection, `ref` and `out` parameter
 propagation, `in` parameters, managed by-reference returns, generic-target and
 multicast-delegate rejection, idempotent and retryable removal, cleanup
@@ -40,7 +41,8 @@ listing, invalid IDs, and rejection when Insider is not installed.
 A separate CLI-diagnostic fixture proves that inspection does not activate
 plugin code and covers ready, disabled, missing optional, missing required,
 disabled required, minimum-version mismatch, duplicate-ID, and cyclic dependency
-states plus stale disabled IDs and the failing exit code.
+states, compatible and incompatible Insider requirements, stale disabled IDs,
+and the failing exit code.
 A separate dependency-graph case verifies the required `(disabled)` diagnostic
 and confirms that a disabled optional dependency does not block activation.
 
@@ -109,7 +111,7 @@ claim.
 The managed suite uses a minimal dynamic assembly named
 `UnityEngine.CoreModule` to verify discovery of the expected synchronization
 pump without taking a Unity dependency. Together with the hook tests, the suite
-currently contains 61 passing tests.
+currently contains 64 passing tests.
 
 The real-player phase proves that `Load()` runs on Insider's bootstrap thread
 and that a callback posted through `context.MainThread` later runs on Unity's

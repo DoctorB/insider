@@ -265,6 +265,11 @@ internal static class Program
         {
             Console.WriteLine($"  [{plugin.State}] {plugin.Id} {plugin.Version} - {plugin.Name}");
             Console.WriteLine($"    Assembly: {plugin.AssemblyPath}");
+            if (plugin.MinimumInsiderVersion is not null)
+            {
+                Console.WriteLine($"    Insider:  >= {plugin.MinimumInsiderVersion}");
+            }
+
             foreach (var dependency in plugin.Dependencies)
             {
                 var requirement = dependency.MinimumVersion is null

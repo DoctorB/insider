@@ -9,6 +9,9 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Optional `MinimumInsiderVersion` plugin metadata with strict version
+  validation, pre-activation rejection, CLI diagnostics, and one shared loader
+  and abstractions version source.
 - Bounded, dependency-free session logging: `native.log` and `insider.log` hold
   the current process while fixed `*.previous.log` files retain only the
   immediately preceding process.

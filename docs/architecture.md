@@ -47,6 +47,12 @@ Plugin versions use a deliberately small numeric `MAJOR.MINOR.PATCH` model.
 Dependencies may specify one minimum version; arbitrary ranges are outside the
 initial loader contract.
 
+A plugin may also declare one inclusive minimum Insider version. The loader and
+public abstractions share one build version and the loader validates this
+requirement during metadata discovery, before constructing the plugin or
+entering `Load()`. Missing requirements preserve compatibility with existing
+plugins; maximum versions and range expressions remain outside the contract.
+
 The bootstrap reads the optional `Insider/config/disabled-plugins.txt` file and
 passes its normalized, case-insensitive ID set into directory loading. The loader
 removes matching candidates after duplicate-ID validation and before dependency

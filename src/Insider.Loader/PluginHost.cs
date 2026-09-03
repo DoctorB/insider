@@ -8,6 +8,9 @@ namespace Insider.Loader;
 
 public sealed class PluginHost : IDisposable
 {
+    private static readonly PluginVersion CurrentInsiderVersion = PluginVersion.FromAssemblyVersion(
+        typeof(PluginHost).Assembly.GetName().Version);
+
     private readonly IInsiderContext _context;
     private readonly Dictionary<string, LoadedPlugin> _plugins =
         new Dictionary<string, LoadedPlugin>(StringComparer.OrdinalIgnoreCase);
@@ -177,6 +180,26 @@ public sealed class PluginHost : IDisposable
             return null;
         }
 
+        if (metadata.MinimumInsiderVersion is not null)
+        {
+            if (!PluginVersion.TryParse(metadata.MinimumInsiderVersion, out var minimumInsiderVersion))
+            {
+                results.Add(Fail(
+                    source,
+                    $"Plugin '{metadata.Id}' declares invalid minimum Insider version '{metadata.MinimumInsiderVersion}'. " +
+                    "Expected MAJOR.MINOR.PATCH using non-negative integers."));
+                return null;
+            }
+
+            if (CurrentInsiderVersion.CompareTo(minimumInsiderVersion) < 0)
+            {
+                results.Add(Fail(
+                    source,
+                    $"Plugin '{metadata.Id}' requires Insider >= {minimumInsiderVersion}, but this loader is {CurrentInsiderVersion}."));
+                return null;
+            }
+        }
+
         var dependencyAttributes = pluginType
             .GetCustomAttributes<InsiderPluginDependencyAttribute>(inherit: false)
             .OrderBy(attribute => attribute.Id, StringComparer.OrdinalIgnoreCase)
@@ -258,6 +281,7 @@ public sealed class PluginHost : IDisposable
                 candidate.Metadata.Id,
                 candidate.Metadata.Name,
                 candidate.Metadata.Version,
+                candidate.Metadata.MinimumInsiderVersion,
                 candidate.Type.FullName ?? candidate.Type.Name,
                 candidate.Dependencies);
             pluginContext = new PluginContext(_context, descriptor.Id, candidate.PluginDirectory);

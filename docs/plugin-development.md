@@ -28,6 +28,30 @@ public sealed class MyPlugin : IInsiderPlugin
 Do not redistribute `Insider.Abstractions.dll` with the plugin. The loader ships
 and owns the contract assembly.
 
+## Plugin/loader compatibility
+
+A plugin that uses capabilities introduced by a specific Insider release can
+declare one inclusive minimum loader version:
+
+```csharp
+[InsiderPlugin(
+    "com.example.my-plugin",
+    "My Plugin",
+    "0.1.0",
+    MinimumInsiderVersion = "0.1.0")]
+```
+
+The value must contain exactly three non-negative integers in
+`MAJOR.MINOR.PATCH` form. Insider validates it while reading metadata. If the
+value is invalid or greater than the running loader version, the plugin is not
+constructed and `Load()` is never called; the load result and log show both the
+required and current versions.
+
+The property is optional so existing plugins retain their current behavior.
+Insider intentionally provides no maximum version, wildcard, prerelease label,
+or range-expression syntax. `PluginDescriptor.MinimumInsiderVersion` exposes the
+declared value after a compatible plugin loads.
+
 ## Plugin-owned directories
 
 `IInsiderContext` exposes the paths assigned to the current plugin:

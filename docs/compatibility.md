@@ -27,6 +27,15 @@ replace an end-to-end launch test.
 covering installation and plugin health. It does not launch the player, so a
 clean report proves structural consistency rather than runtime compatibility.
 
+## Plugin and loader versions
+
+Plugins may declare an inclusive `MinimumInsiderVersion` using the strict
+`MAJOR.MINOR.PATCH` format. Insider validates it before plugin construction and
+before `Load()`. A missing declaration accepts the current loader; an invalid or
+newer requirement fails only that plugin with both required and current versions
+in the diagnostic. Insider does not currently support maximum versions,
+arbitrary ranges, prerelease labels, or wildcards.
+
 ## Native bootstrap assumptions
 
 The experimental Windows x64 bootstrap relies on the game loading a local

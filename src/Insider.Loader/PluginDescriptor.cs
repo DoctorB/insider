@@ -8,12 +8,14 @@ public sealed class PluginDescriptor
         string id,
         string name,
         string version,
+        string? minimumInsiderVersion,
         string typeName,
         IReadOnlyList<PluginDependencyDescriptor> dependencies)
     {
         Id = id;
         Name = name;
         Version = version;
+        MinimumInsiderVersion = minimumInsiderVersion;
         TypeName = typeName;
         Dependencies = dependencies;
     }
@@ -23,6 +25,8 @@ public sealed class PluginDescriptor
     public string Name { get; }
 
     public string Version { get; }
+
+    public string? MinimumInsiderVersion { get; }
 
     public string TypeName { get; }
 

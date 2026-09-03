@@ -27,6 +27,10 @@ be present, enabled, structurally valid, outside a required cycle, and at or
 above their declared minimum version. Missing, disabled, incompatible, or
 broken optional dependencies are shown but remain allowed.
 
+When a plugin declares `MinimumInsiderVersion`, the Plugins section also prints
+`Insider: >= MAJOR.MINOR.PATCH`. A malformed requirement or one newer than the
+current Insider build marks that plugin as `Problem` without creating it.
+
 For example:
 
 ```text
@@ -36,6 +40,7 @@ Plugins
   Disabled IDs: 1
   [Ready] com.example.foundation 1.2.0 - Foundation
   [Ready] com.example.gameplay 1.0.0 - Gameplay Tweaks
+    Insider:  >= 0.1.0
     Dependency: com.example.foundation >= 1.0.0 (required) - ready (1.2.0)
   [Disabled] com.example.experimental 0.2.0 - Experimental
 
@@ -53,6 +58,7 @@ The command returns a problem for any of these conditions:
 - unreadable managed assemblies or ambiguous managed dependency candidates;
 - missing plugin metadata, invalid plugin or minimum versions, duplicate plugin
   IDs, or repeated dependency declarations;
+- invalid or unsatisfied minimum Insider versions;
 - missing, disabled, incompatible, or already-broken required plugins;
 - required dependency cycles.
 

@@ -28,6 +28,24 @@ public sealed class DiagnosticOptionalPlugin : DiagnosticPluginBase
 {
 }
 
+[InsiderPlugin(
+    "dev.insider.tests.diagnostic-compatible-insider",
+    "Diagnostic Compatible Insider",
+    "1.0.0",
+    MinimumInsiderVersion = "0.1.0")]
+public sealed class DiagnosticCompatibleInsiderPlugin : DiagnosticPluginBase
+{
+}
+
+[InsiderPlugin(
+    "dev.insider.tests.diagnostic-needs-newer-insider",
+    "Diagnostic Needs Newer Insider",
+    "1.0.0",
+    MinimumInsiderVersion = "999.0.0")]
+public sealed class DiagnosticNeedsNewerInsiderPlugin : DiagnosticPluginBase
+{
+}
+
 [InsiderPlugin("dev.insider.tests.diagnostic-broken", "Diagnostic Broken", "1.0.0")]
 [InsiderPluginDependency("dev.insider.tests.missing")]
 public sealed class DiagnosticBrokenPlugin : DiagnosticPluginBase
