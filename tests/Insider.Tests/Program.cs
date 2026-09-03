@@ -75,6 +75,7 @@ internal static class Program
             ("fails closed on a missing plugin dependency", FailsClosedOnMissingPluginDependency),
             ("resolves host dependencies from the Insider core", ResolvesHostDependencyFromCore),
             ("bootstraps a plugin directory end to end", BootstrapsPluginDirectoryEndToEnd),
+            ("rotates managed logs between bootstrap sessions", RotatesManagedLogsBetweenBootstrapSessions),
             ("skips plugins in the bootstrap disable list", SkipsPluginsInBootstrapDisableList),
             ("rejects conflicting plugin dependency versions", RejectsConflictingPluginDependencyVersions),
             ("fails closed on an unsupported managed runtime", FailsClosedOnUnsupportedManagedRuntime),
@@ -1014,6 +1015,36 @@ internal static class Program
         Assert(result.LoadedPluginCount == 0 && result.FailedPluginCount == 1, "Missing dependency did not fail exactly one plugin.");
         Assert(!File.Exists(Path.Combine(result.InsiderDirectory, "fixture-loaded.txt")), "Plugin completed with a missing dependency.");
         Assert(File.ReadAllText(result.LogPath).Contains("is not present under", StringComparison.Ordinal), "Missing dependency was not diagnosed.");
+    }
+
+    private static void RotatesManagedLogsBetweenBootstrapSessions()
+    {
+        using var fixture = BootstrapFixtureWorkspace.Create(withMonoRuntime: false);
+        using var environment = EnvironmentVariableScope.Clear("DOORSTOP_MONO_LIB_PATH");
+
+        string currentLogPath;
+        using (var firstSession = new BootstrapSession())
+        {
+            currentLogPath = firstSession.Start(fixture.GameDirectory).LogPath;
+            firstSession.Stop();
+        }
+
+        const string previousSessionMarker = "previous managed session marker";
+        File.AppendAllText(currentLogPath, previousSessionMarker + Environment.NewLine);
+        var previousLogPath = Path.Combine(Path.GetDirectoryName(currentLogPath)!, "insider.previous.log");
+        File.WriteAllText(previousLogPath, "stale previous log");
+
+        using var secondSession = new BootstrapSession();
+        var secondResult = secondSession.Start(fixture.GameDirectory);
+
+        Assert(secondResult.LogPath == currentLogPath, "The current managed log path changed between sessions.");
+        Assert(File.Exists(previousLogPath), "The previous managed log was not created.");
+        Assert(
+            File.ReadAllText(previousLogPath).Contains(previousSessionMarker, StringComparison.Ordinal),
+            "The previous managed log does not contain the completed session.");
+        Assert(
+            !File.ReadAllText(currentLogPath).Contains(previousSessionMarker, StringComparison.Ordinal),
+            "The current managed log still contains the previous session.");
     }
 
     private static void SkipsPluginsInBootstrapDisableList()

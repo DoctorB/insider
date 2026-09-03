@@ -10,6 +10,7 @@ namespace
 {
     HMODULE g_module = nullptr;
     INIT_ONCE g_system_version_once = INIT_ONCE_STATIC_INIT;
+    INIT_ONCE g_native_log_once = INIT_ONCE_STATIC_INIT;
     HMODULE g_system_version = nullptr;
 
     enum class BootstrapResult
@@ -89,6 +90,28 @@ namespace
         return result;
     }
 
+    BOOL CALLBACK RotateNativeLog(PINIT_ONCE, PVOID, PVOID*)
+    {
+        const auto game_directory = GetDirectoryName(GetModulePath(g_module));
+        if (game_directory.empty())
+        {
+            return TRUE;
+        }
+
+        const auto insider_directory = Combine(game_directory, L"Insider");
+        const auto log_directory = Combine(insider_directory, L"logs");
+        CreateDirectoryW(insider_directory.c_str(), nullptr);
+        CreateDirectoryW(log_directory.c_str(), nullptr);
+
+        const auto log_path = Combine(log_directory, L"native.log");
+        const auto previous_log_path = Combine(log_directory, L"native.previous.log");
+        MoveFileExW(
+            log_path.c_str(),
+            previous_log_path.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+        return TRUE;
+    }
+
     void WriteLog(const std::wstring& message)
     {
         const auto game_directory = GetDirectoryName(GetModulePath(g_module));
@@ -101,6 +124,7 @@ namespace
         const auto log_directory = Combine(insider_directory, L"logs");
         CreateDirectoryW(insider_directory.c_str(), nullptr);
         CreateDirectoryW(log_directory.c_str(), nullptr);
+        InitOnceExecuteOnce(&g_native_log_once, RotateNativeLog, nullptr, nullptr);
 
         const auto log_path = Combine(log_directory, L"native.log");
         const auto handle = CreateFileW(

@@ -68,7 +68,8 @@ per-frame update registrations when the plugin context is disposed.
 
 The earliest managed entry point. It resolves the game and Insider directories,
 creates the plugin, configuration, data, and log roots, creates diagnostics,
-detects the scripting backend, and starts the chainloader.
+rotates the managed current log to one previous-session file, detects the
+scripting backend, and starts the chainloader.
 The native loader invokes `Insider.Native.Entrypoint.Start()` through Mono's
 embedding API. The exported `Doorstop.Entrypoint.Start()` method is retained as
 a compatibility adapter rather than a dependency on a full mod loader.
@@ -85,8 +86,9 @@ synchronous and deterministic on the bootstrap thread.
 The Insider-owned Windows x64 process entry layer. It is installed as a local
 `version.dll`, forwards the Windows version-information API to the operating
 system, waits for Unity's existing Mono runtime, attaches its bootstrap thread,
-and invokes the managed entry point. It does not ship or initialize a second
-Mono runtime.
+and invokes the managed entry point. Before its first message it rotates the
+native current log to one previous-session file. It does not ship or initialize
+a second Mono runtime.
 
 ### Insider.Installation and Insider.Cli
 

@@ -29,7 +29,9 @@ Manage that list with:
   dotnet insider.dll plugins disabled "C:\Path\Game.exe"
   dotnet insider.dll plugins enable "C:\Path\Game.exe" com.example.plugin
 Changes take effect on the next game start.
-Logs are written to <game>\Insider\logs.
+Logs are written to <game>\Insider\logs. native.log and insider.log contain the
+current process; native.previous.log and insider.previous.log retain only the
+immediately preceding process. There is no logging configuration.
 Managed detours and IL hooks use the loader-owned MonoMod.RuntimeDetour backend
 and are removed automatically when their owning plugin unloads.
 Plugins can schedule Unity-facing work through context.MainThread; pending work

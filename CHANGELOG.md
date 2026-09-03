@@ -9,6 +9,9 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Bounded, dependency-free session logging: `native.log` and `insider.log` hold
+  the current process while fixed `*.previous.log` files retain only the
+  immediately preceding process.
 - Read-only `insider diagnose <game.exe>` reporting the Unity target,
   installation integrity, discovered and disabled plugins, dependency states,
   version mismatches, duplicates, cycles, and readable problems without
