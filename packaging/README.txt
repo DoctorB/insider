@@ -13,6 +13,10 @@ Verify or remove:
 
 Plugins belong in <game>\Insider\plugins.
 Managed plugin dependencies belong in <game>\Insider\plugins\dependencies.
+Each plugin receives its entry-assembly directory through context.PluginDirectory.
+Its private persistent directories are exposed through context.ConfigDirectory
+and context.DataDirectory. Plugins own the files below those two directories;
+Insider does not define a configuration format or serializer.
 Optional disabled plugin ids belong one per line in
 <game>\Insider\config\disabled-plugins.txt.
 Manage that list with:
@@ -25,7 +29,7 @@ Managed detours and IL hooks use the loader-owned MonoMod.RuntimeDetour backend
 and are removed automatically when their owning plugin unloads.
 Plugins can schedule Unity-facing work through context.MainThread; pending work
 is invalidated automatically when its owning plugin unloads.
-The configuration directory is preserved during uninstall.
+Plugin configuration and data directories are preserved during uninstall.
 
 License terms are included in LICENSE and THIRD_PARTY_NOTICES.md.
 

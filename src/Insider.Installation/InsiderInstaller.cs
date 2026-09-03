@@ -80,6 +80,7 @@ public sealed class InsiderInstaller
             Directory.CreateDirectory(ResolveWithin(gameDirectory, "Insider/core"));
             Directory.CreateDirectory(ResolveWithin(gameDirectory, "Insider/plugins"));
             Directory.CreateDirectory(ResolveWithin(gameDirectory, "Insider/config"));
+            Directory.CreateDirectory(ResolveWithin(gameDirectory, "Insider/data"));
             Directory.CreateDirectory(ResolveWithin(gameDirectory, "Insider/logs"));
 
             if (File.Exists(proxyPath))

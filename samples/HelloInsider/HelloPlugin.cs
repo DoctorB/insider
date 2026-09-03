@@ -11,6 +11,9 @@ public sealed class HelloPlugin : IInsiderPlugin
     {
         _logger = context.Logger;
         _logger.Info($"Hello from {context.Runtime.Backend} on {context.Runtime.Architecture}.");
+        _logger.Info($"Plugin files: {context.PluginDirectory}");
+        _logger.Info($"Configuration: {context.ConfigDirectory}");
+        _logger.Info($"Data: {context.DataDirectory}");
     }
 
     public void Unload()

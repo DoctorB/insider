@@ -25,11 +25,13 @@ manipulators, detour coexistence, value-type constructor rewriting, target and
 manipulator validation, stable failures, plugin ownership, and retryable cleanup.
 It also verifies FIFO main-thread dispatch, next-pump deferral, callback failure
 containment, readiness and thread identity, plugin-scoped logging, pending-work
-cancellation, and dispatcher hook cleanup.
+cancellation, dispatcher hook cleanup, and plugin-scoped directory creation,
+isolation, traversal-safe naming, ownership, and persistence after unload.
 Bootstrap coverage also parses comments, blanks, duplicate IDs, whitespace, and
 case variants from `disabled-plugins.txt`; it verifies that the matching plugin
 does not run and is not counted as failed. Installation coverage verifies that
-the `config` directory is created and user-owned disable lists survive uninstall.
+the `config` and `data` roots are created and user-owned contents survive
+uninstall.
 A CLI-management case exercises all three `plugins` commands, idempotent
 updates, case-insensitive duplicate removal, comment preservation, sorted
 listing, invalid IDs, and rejection when Insider is not installed.
@@ -41,8 +43,9 @@ and confirms that a disabled optional dependency does not block activation.
 `Insider.PluginFixture` is copied into a temporary Unity-like game layout and
 loaded through a real managed bootstrap session. The test verifies runtime
 detection, directory creation, assembly discovery, plugin context delivery,
-exact dependency resolution, load and unload callbacks, failure-closed behavior
-for missing or conflicting dependencies and unsupported runtimes, and
+the actual entry-assembly directory, isolated plugin configuration and data
+paths, exact dependency resolution, load and unload callbacks, failure-closed
+behavior for missing or conflicting dependencies and unsupported runtimes, and
 persistent bootstrap logging. A separate case proves that a public host
 dependency can be resolved from `Insider/core` without being copied into the
 plugin dependency tree.
@@ -95,7 +98,7 @@ claim.
 The managed suite uses a minimal dynamic assembly named
 `UnityEngine.CoreModule` to verify discovery of the expected synchronization
 pump without taking a Unity dependency. Together with the hook tests, the suite
-currently contains 57 passing tests.
+currently contains 58 passing tests.
 
 The real-player phase proves that `Load()` runs on Insider's bootstrap thread
 and that a callback posted through `context.MainThread` later runs on Unity's
