@@ -54,12 +54,13 @@ public sealed class PluginHost : IDisposable
 
         var results = new List<PluginLoadResult>();
         var pluginTypes = new List<Type>();
+        var pluginDirectories = new Dictionary<Type, string>();
         foreach (var assemblyPath in Directory.GetFiles(normalizedDirectory, "*.dll").OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
-            DiscoverAssembly(assemblyPath, pluginTypes, results);
+            DiscoverAssembly(assemblyPath, pluginTypes, pluginDirectories, results);
         }
 
-        return LoadTypes(pluginTypes, results, disabled);
+        return LoadTypes(pluginTypes, pluginDirectories, results, disabled);
     }
 
     public IReadOnlyList<PluginLoadResult> LoadAssembly(string assemblyPath)
@@ -71,8 +72,13 @@ public sealed class PluginHost : IDisposable
 
         var results = new List<PluginLoadResult>();
         var pluginTypes = new List<Type>();
-        DiscoverAssembly(assemblyPath, pluginTypes, results);
-        return LoadTypes(pluginTypes, results, CreateDisabledPluginSet(Array.Empty<string>()));
+        var pluginDirectories = new Dictionary<Type, string>();
+        DiscoverAssembly(assemblyPath, pluginTypes, pluginDirectories, results);
+        return LoadTypes(
+            pluginTypes,
+            pluginDirectories,
+            results,
+            CreateDisabledPluginSet(Array.Empty<string>()));
     }
 
     public PluginLoadResult Load(Type pluginType)
@@ -101,12 +107,14 @@ public sealed class PluginHost : IDisposable
 
         return LoadTypes(
             pluginTypes,
+            null,
             new List<PluginLoadResult>(),
             CreateDisabledPluginSet(disabledPluginIds));
     }
 
     private IReadOnlyList<PluginLoadResult> LoadTypes(
         IEnumerable<Type> pluginTypes,
+        IReadOnlyDictionary<Type, string>? pluginDirectories,
         List<PluginLoadResult> results,
         ISet<string> disabledPluginIds)
     {
@@ -119,7 +127,9 @@ public sealed class PluginHost : IDisposable
                 continue;
             }
 
-            var candidate = CreateCandidate(pluginType, results);
+            string? pluginDirectory = null;
+            pluginDirectories?.TryGetValue(pluginType, out pluginDirectory);
+            var candidate = CreateCandidate(pluginType, pluginDirectory, results);
             if (candidate is not null)
             {
                 candidates.Add(candidate);
@@ -139,7 +149,10 @@ public sealed class PluginHost : IDisposable
         return results.AsReadOnly();
     }
 
-    private PluginCandidate? CreateCandidate(Type pluginType, ICollection<PluginLoadResult> results)
+    private PluginCandidate? CreateCandidate(
+        Type pluginType,
+        string? pluginDirectory,
+        ICollection<PluginLoadResult> results)
     {
         var source = pluginType.AssemblyQualifiedName ?? pluginType.FullName ?? pluginType.Name;
 
@@ -202,7 +215,13 @@ public sealed class PluginHost : IDisposable
                 dependencyAttribute.Optional));
         }
 
-        return new PluginCandidate(pluginType, metadata, pluginVersion, dependencies.AsReadOnly(), source);
+        return new PluginCandidate(
+            pluginType,
+            metadata,
+            pluginVersion,
+            dependencies.AsReadOnly(),
+            source,
+            ResolvePluginDirectory(pluginType, pluginDirectory));
     }
 
     private PluginLoadResult Activate(PluginCandidate candidate)
@@ -241,7 +260,7 @@ public sealed class PluginHost : IDisposable
                 candidate.Metadata.Version,
                 candidate.Type.FullName ?? candidate.Type.Name,
                 candidate.Dependencies);
-            pluginContext = new PluginContext(_context, descriptor.Id);
+            pluginContext = new PluginContext(_context, descriptor.Id, candidate.PluginDirectory);
             instance.Load(pluginContext);
 
             _plugins.Add(descriptor.Id, new LoadedPlugin(descriptor, instance, pluginContext));
@@ -506,15 +525,19 @@ public sealed class PluginHost : IDisposable
     private void DiscoverAssembly(
         string assemblyPath,
         ICollection<Type> pluginTypes,
+        IDictionary<Type, string> pluginDirectories,
         ICollection<PluginLoadResult> results)
     {
         try
         {
             var normalizedPath = Path.GetFullPath(assemblyPath);
             var assembly = Assembly.Load(File.ReadAllBytes(normalizedPath));
+            var pluginDirectory = Path.GetDirectoryName(normalizedPath)
+                ?? throw new InvalidOperationException($"Plugin assembly '{normalizedPath}' has no parent directory.");
             foreach (var pluginType in GetLoadableTypes(assembly).Where(IsPluginType))
             {
                 pluginTypes.Add(pluginType);
+                pluginDirectories[pluginType] = pluginDirectory;
             }
         }
         catch (Exception exception)
@@ -522,6 +545,26 @@ public sealed class PluginHost : IDisposable
             _context.Logger.Error($"Could not load plugin assembly '{assemblyPath}'.", exception);
             results.Add(PluginLoadResult.Failure(assemblyPath, exception.Message, exception));
         }
+    }
+
+    private string ResolvePluginDirectory(Type pluginType, string? discoveredDirectory)
+    {
+        if (!string.IsNullOrWhiteSpace(discoveredDirectory))
+        {
+            return Path.GetFullPath(discoveredDirectory);
+        }
+
+        var assemblyLocation = pluginType.Assembly.Location;
+        if (!string.IsNullOrWhiteSpace(assemblyLocation))
+        {
+            var assemblyDirectory = Path.GetDirectoryName(Path.GetFullPath(assemblyLocation));
+            if (assemblyDirectory is not null)
+            {
+                return assemblyDirectory;
+            }
+        }
+
+        return Path.GetFullPath(_context.PluginDirectory);
     }
 
     private void EnsureDependencyResolver(string pluginDirectory)

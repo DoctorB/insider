@@ -28,6 +28,55 @@ public sealed class MyPlugin : IInsiderPlugin
 Do not redistribute `Insider.Abstractions.dll` with the plugin. The loader ships
 and owns the contract assembly.
 
+## Plugin-owned directories
+
+`IInsiderContext` exposes the paths assigned to the current plugin:
+
+| Property | Purpose | Ownership |
+| --- | --- | --- |
+| `PluginDirectory` | Entry assembly and bundled read-only assets | Installation layout; it may be shared by plugin types from the same assembly |
+| `ConfigDirectory` | Persistent user-editable settings | The plugin owns everything below this directory |
+| `DataDirectory` | Persistent caches, state, or generated content | The plugin owns everything below this directory |
+
+`ConfigDirectory` and `DataDirectory` are isolated by the plugin's
+case-insensitive stable ID and exist before `Load()` is called. They are not
+removed when the plugin unloads or when Insider is uninstalled. A conventional
+ID such as `com.example.my-plugin` produces this layout:
+
+```text
+Insider/
+  plugins/MyPlugin.dll
+  config/com.example.my-plugin/
+  data/com.example.my-plugin/
+```
+
+IDs that are not safe portable directory names receive a deterministic safe
+segment. Always use the paths from `context`; do not derive them from the plugin
+ID or write outside them. `PluginDirectory` identifies the actual directory
+that supplied the entry assembly, which can differ from the root plugin
+directory and can be shared. Keep persistent files in `ConfigDirectory` or
+`DataDirectory`, not next to the assembly.
+
+Insider deliberately provides paths and ownership only. It has no settings
+schema, serializer, cache API, or automatic migration. A plugin can choose the
+simplest format that fits its needs:
+
+```csharp
+using System.IO;
+
+public void Load(IInsiderContext context)
+{
+    var preferencesPath = Path.Combine(context.ConfigDirectory, "preferences.txt");
+    if (!File.Exists(preferencesPath))
+    {
+        File.WriteAllText(preferencesPath, "show-overlay=true");
+    }
+
+    var cachePath = Path.Combine(context.DataDirectory, "last-session.txt");
+    File.WriteAllText(cachePath, "loaded");
+}
+```
+
 ## Plugin dependencies
 
 Declare a required dependency on another plugin by its stable ID:
@@ -97,10 +146,9 @@ dependency on that ID does not block activation.
 
 Disabling does not repair an unreadable or structurally invalid assembly because
 metadata discovery necessarily happens first. Remove such a DLL from
-`Insider/plugins` when discovery itself fails. Insider creates the `config`
-directory during installation and preserves its contents during uninstall.
-There is deliberately no hot reload, wildcard, per-file switch, or separate
-configuration language.
+`Insider/plugins` when discovery itself fails. Insider preserves both the
+`config` and `data` directory trees during uninstall. There is deliberately no
+hot reload, wildcard, per-file switch, or separate configuration language.
 
 ## Version policy
 

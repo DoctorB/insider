@@ -35,11 +35,13 @@ internal sealed class BootstrapSession : IDisposable
             var insiderDirectory = Path.Combine(normalizedGameDirectory, "Insider");
             var pluginDirectory = Path.Combine(insiderDirectory, "plugins");
             var configDirectory = Path.Combine(insiderDirectory, "config");
+            var dataDirectory = Path.Combine(insiderDirectory, "data");
             var logDirectory = Path.Combine(insiderDirectory, "logs");
             var logPath = Path.Combine(logDirectory, "insider.log");
 
             Directory.CreateDirectory(pluginDirectory);
             Directory.CreateDirectory(configDirectory);
+            Directory.CreateDirectory(dataDirectory);
             Directory.CreateDirectory(logDirectory);
 
             var logger = new FileLogger(logPath);

@@ -26,6 +26,8 @@ The first implementation target is intentionally narrow:
 - A loader-owned `context.MainThread` dispatcher for scheduling Unity work from
   the early bootstrap thread
 - An optional text list for disabling plugins by ID without moving their DLLs
+- Loader-assigned plugin, configuration, and data directories exposed through
+  each plugin context
 
 IL2CPP and additional operating systems are planned as separate runtime
 backends. They are not supported yet.
@@ -98,9 +100,9 @@ the next time the game starts.
 
 Installation is deliberately limited to detected Windows x64 Unity/Mono games.
 It records hashes in `Insider/install.json`, never removes plugins or logs, and
-never removes user configuration. It refuses to uninstall modified loader files
-unless `--force` is explicitly used. The pre-alpha CLI package requires the
-.NET 10 runtime.
+never removes plugin configuration or data. It refuses to uninstall modified
+loader files unless `--force` is explicitly used. The pre-alpha CLI package
+requires the .NET 10 runtime.
 
 ## Build
 
@@ -168,6 +170,29 @@ public sealed class HelloPlugin : IInsiderPlugin
     }
 }
 ```
+
+Each plugin context provides three full paths:
+
+- `PluginDirectory` contains the plugin entry assembly and its bundled files.
+- `ConfigDirectory` is the plugin-owned persistent configuration directory.
+- `DataDirectory` is the plugin-owned persistent data directory.
+
+For a conventional ID such as `com.example.hello`, the persistent layout is:
+
+```text
+Insider/
+  plugins/...
+  config/com.example.hello/
+  data/com.example.hello/
+```
+
+`ConfigDirectory` and `DataDirectory` exist before `Load()` runs and survive
+plugin unload and Insider uninstall. Insider assigns a safe directory name for
+unusual IDs, so plugins must use the context paths instead of rebuilding them
+from the ID. Insider owns no configuration format and does not parse or
+serialize files stored there. See
+[plugin-owned directories](docs/plugin-development.md#plugin-owned-directories)
+for the ownership rules and a complete example.
 
 Plugin-to-plugin requirements use stable plugin IDs and are resolved before any
 plugin is activated:

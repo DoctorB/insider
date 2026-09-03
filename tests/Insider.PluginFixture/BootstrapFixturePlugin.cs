@@ -16,6 +16,9 @@ public sealed class BootstrapFixturePlugin : IInsiderPlugin
             Path.Combine(_insiderDirectory, "fixture-loaded.txt"),
             $"Backend={context.Runtime.Backend}{System.Environment.NewLine}" +
             $"GameDirectory={context.GameDirectory}{System.Environment.NewLine}" +
+            $"PluginDirectory={context.PluginDirectory}{System.Environment.NewLine}" +
+            $"ConfigDirectory={context.ConfigDirectory}{System.Environment.NewLine}" +
+            $"DataDirectory={context.DataDirectory}{System.Environment.NewLine}" +
             $"Dependency={DependencyValue.Current}");
     }
 

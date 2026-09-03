@@ -53,16 +53,22 @@ removes matching candidates after duplicate-ID validation and before dependency
 validation or activation. Skipped plugins produce diagnostics but no failure
 result; required dependants fail explicitly when their dependency is disabled.
 
-Each activated plugin receives a thin context wrapper whose logger prefixes
-messages with the plugin ID and whose hooking service tracks that plugin's
-detours and IL hooks. Remaining hooks are removed in reverse creation order
-after `Unload()`, including cleanup after a failed `Load()`. Its main-thread
-wrapper also makes pending callbacks inert when the plugin context is disposed.
+Each activated plugin receives a thin context wrapper. It exposes the directory
+containing the entry assembly plus isolated persistent configuration and data
+directories derived safely from the case-insensitive plugin ID. The plugin owns
+the files below its configuration and data directories; the loader creates the
+directories before `Load()` but provides no configuration format or serializer.
+The wrapper's logger prefixes messages with the plugin ID and its hooking
+service tracks that plugin's detours and IL hooks. Remaining hooks are removed
+in reverse creation order after `Unload()`, including cleanup after a failed
+`Load()`. Its main-thread wrapper also makes pending callbacks inert when the
+plugin context is disposed.
 
 ### Insider.Bootstrap
 
 The earliest managed entry point. It resolves the game and Insider directories,
-creates diagnostics, detects the scripting backend, and starts the chainloader.
+creates the plugin, configuration, data, and log roots, creates diagnostics,
+detects the scripting backend, and starts the chainloader.
 The native loader invokes `Insider.Native.Entrypoint.Start()` through Mono's
 embedding API. The exported `Doorstop.Entrypoint.Start()` method is retained as
 a compatibility adapter rather than a dependency on a full mod loader.
@@ -89,7 +95,8 @@ An existing root `version.dll` is preserved and restored; unknown core files are
 never overwritten. The CLI also lists, disables, and enables plugins by stable
 ID through the existing `Insider/config/disabled-plugins.txt` format. Mutations
 preserve user comments and unrelated lines, use a same-directory atomic replace,
-and never attempt to change the state of a running game.
+and never attempt to change the state of a running game. Uninstall preserves
+plugin assemblies, logs, and the plugin-owned configuration and data trees.
 
 ### Insider.Hooking
 
@@ -146,6 +153,8 @@ backend.
   filesystem or reflection order.
 - Disabled plugin IDs must be applied before dependency ordering, without
   treating an intentional skip as a load failure.
+- Plugins must use loader-assigned paths and keep persistent writes below their
+  owned configuration or data directory.
 - Unity-facing plugin work must be posted through the scoped main-thread service;
   `Load()` and `Unload()` are not main-thread callbacks.
 - Work queued by an inactive or failed plugin must never execute later.

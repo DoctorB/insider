@@ -91,3 +91,5 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   deterministic dependency diagnostics and preservation during uninstall.
 - CLI commands to list, disable, and enable exact plugin IDs through the same
   disable list, with idempotent atomic updates that preserve user comments.
+- Plugin-scoped entry-assembly, configuration, and data directory paths, with
+  isolated persistent ownership and no loader-owned configuration framework.

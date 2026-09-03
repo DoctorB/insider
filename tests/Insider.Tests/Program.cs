@@ -27,6 +27,7 @@ internal static class Program
             ("rejects missing metadata", RejectsMissingMetadata),
             ("contains plugin load failures", ContainsLoadFailure),
             ("scopes plugin log messages by id", ScopesPluginLogMessagesById),
+            ("scopes persistent directories by plugin id", ScopesPersistentDirectoriesByPluginId),
             ("contains plugin main-thread callback failures", ContainsPluginMainThreadCallbackFailures),
             ("cancels queued main-thread callbacks during plugin unload", CancelsQueuedMainThreadCallbacksDuringUnload),
             ("applies and removes a managed detour", AppliesAndRemovesManagedDetour),
@@ -97,6 +98,7 @@ internal static class Program
             }
         }
 
+        TestContext.ResetDirectories();
         Console.WriteLine($"{tests.Length - failed} passed, {failed} failed.");
         return failed == 0 ? 0 : 1;
     }
@@ -148,6 +150,52 @@ internal static class Program
         Assert(
             context.CapturedLogger.Messages.Contains("Loaded plugin dev.insider.tests.logging 1.0.0."),
             "Loader message was unexpectedly changed by the plugin scope.");
+    }
+
+    private static void ScopesPersistentDirectoriesByPluginId()
+    {
+        var context = new TestContext();
+        using var host = new PluginHost(context);
+        var results = host.Load(new[]
+        {
+            typeof(DirectoryPluginA),
+            typeof(DirectoryPluginB),
+            typeof(UnsafeDirectoryPlugin),
+        });
+
+        Assert(results.All(result => result.Succeeded), "A directory fixture plugin did not load.");
+        var first = DirectoryPluginA.Context
+            ?? throw new InvalidOperationException("The first plugin did not capture its context.");
+        var second = DirectoryPluginB.Context
+            ?? throw new InvalidOperationException("The second plugin did not capture its context.");
+        var unsafeContext = UnsafeDirectoryPlugin.Context
+            ?? throw new InvalidOperationException("The unsafe-ID plugin did not capture its context.");
+
+        var assemblyDirectory = Path.GetDirectoryName(typeof(DirectoryPluginA).Assembly.Location)
+            ?? throw new InvalidOperationException("The test assembly has no parent directory.");
+        Assert(first.PluginDirectory == assemblyDirectory, "PluginDirectory did not identify the entry assembly directory.");
+        Assert(first.ConfigDirectory != second.ConfigDirectory, "Plugins shared a configuration directory.");
+        Assert(first.DataDirectory != second.DataDirectory, "Plugins shared a data directory.");
+        Assert(Directory.Exists(first.ConfigDirectory), "The configuration directory was not created before Load().");
+        Assert(Directory.Exists(first.DataDirectory), "The data directory was not created before Load().");
+
+        var configRoot = Path.GetFullPath(context.ConfigDirectory) + Path.DirectorySeparatorChar;
+        var dataRoot = Path.GetFullPath(context.DataDirectory) + Path.DirectorySeparatorChar;
+        Assert(
+            Path.GetFullPath(unsafeContext.ConfigDirectory).StartsWith(configRoot, StringComparison.OrdinalIgnoreCase),
+            "An unsafe plugin ID escaped the configuration root.");
+        Assert(
+            Path.GetFullPath(unsafeContext.DataDirectory).StartsWith(dataRoot, StringComparison.OrdinalIgnoreCase),
+            "An unsafe plugin ID escaped the data root.");
+
+        var configFile = Path.Combine(first.ConfigDirectory, "settings.txt");
+        var dataFile = Path.Combine(first.DataDirectory, "state.txt");
+        File.WriteAllText(configFile, "configuration");
+        File.WriteAllText(dataFile, "state");
+
+        host.UnloadAll();
+        Assert(File.Exists(configFile), "Plugin configuration was removed during unload.");
+        Assert(File.Exists(dataFile), "Plugin data was removed during unload.");
     }
 
     private static void ContainsPluginMainThreadCallbackFailures()
@@ -888,8 +936,22 @@ internal static class Program
 
         var loadedMarker = Path.Combine(result.InsiderDirectory, "fixture-loaded.txt");
         Assert(File.Exists(loadedMarker), "Fixture plugin did not write its load marker.");
-        Assert(File.ReadAllText(loadedMarker).Contains("Backend=UnityMono", StringComparison.Ordinal), "Fixture received the wrong runtime context.");
-        Assert(File.ReadAllText(loadedMarker).Contains("Dependency=dependency-v1", StringComparison.Ordinal), "Fixture dependency was not resolved.");
+        var loadedMarkerText = File.ReadAllText(loadedMarker);
+        Assert(loadedMarkerText.Contains("Backend=UnityMono", StringComparison.Ordinal), "Fixture received the wrong runtime context.");
+        Assert(loadedMarkerText.Contains($"PluginDirectory={fixture.PluginDirectory}", StringComparison.Ordinal), "Fixture received the wrong plugin directory.");
+        Assert(
+            loadedMarkerText.Contains(
+                $"ConfigDirectory={Path.Combine(fixture.ConfigDirectory, "dev.insider.tests.bootstrap-fixture")}",
+                StringComparison.Ordinal),
+            "Fixture received the wrong configuration directory.");
+        Assert(
+            loadedMarkerText.Contains(
+                $"DataDirectory={Path.Combine(fixture.DataDirectory, "dev.insider.tests.bootstrap-fixture")}",
+                StringComparison.Ordinal),
+            "Fixture received the wrong data directory.");
+        Assert(loadedMarkerText.Contains("Dependency=dependency-v1", StringComparison.Ordinal), "Fixture dependency was not resolved.");
+        Assert(Directory.Exists(fixture.ConfigDirectory), "Bootstrap did not create the configuration root.");
+        Assert(Directory.Exists(fixture.DataDirectory), "Bootstrap did not create the data root.");
 
         var log = File.ReadAllText(result.LogPath);
         Assert(log.Contains("Plugin scan completed: 1 loaded, 0 failed.", StringComparison.Ordinal), "Bootstrap summary was not logged.");
@@ -1011,8 +1073,12 @@ internal static class Program
         Assert(Directory.Exists(Path.Combine(fixture.GameDirectory, "Insider", "plugins")), "Plugin directory was not created.");
         var configDirectory = Path.Combine(fixture.GameDirectory, "Insider", "config");
         Assert(Directory.Exists(configDirectory), "Plugin configuration directory was not created.");
+        var dataDirectory = Path.Combine(fixture.GameDirectory, "Insider", "data");
+        Assert(Directory.Exists(dataDirectory), "Plugin data directory was not created.");
         var disabledPluginPath = Path.Combine(configDirectory, DisabledPluginList.FileName);
         File.WriteAllText(disabledPluginPath, "dev.insider.tests.bootstrap-fixture");
+        var pluginDataPath = Path.Combine(dataDirectory, "user-state.txt");
+        File.WriteAllText(pluginDataPath, "user-state");
 
         var removed = installer.Uninstall(fixture.GameExecutable);
 
@@ -1020,6 +1086,7 @@ internal static class Program
         Assert(File.ReadAllText(Path.Combine(fixture.GameDirectory, "version.dll")) == "original-proxy", "Original proxy was not restored.");
         Assert(!File.Exists(Path.Combine(fixture.GameDirectory, "Insider", "install.json")), "Manifest was not removed.");
         Assert(File.Exists(disabledPluginPath), "Uninstall removed the user-owned disabled-plugin list.");
+        Assert(File.Exists(pluginDataPath), "Uninstall removed user-owned plugin data.");
     }
 
     private static void RefusesToRemoveModifiedFiles()
@@ -1184,6 +1251,10 @@ internal static class Program
         MainThreadCancellationPlugin.Dispatcher = null;
         LifecycleEvents.Clear();
         PluginGraphEvents.Clear();
+        DirectoryPluginA.Context = null;
+        DirectoryPluginB.Context = null;
+        UnsafeDirectoryPlugin.Context = null;
+        TestContext.ResetDirectories();
     }
 
     private static void Assert(bool condition, string message)
@@ -1235,6 +1306,8 @@ internal sealed class BootstrapFixtureWorkspace : IDisposable
     public string CoreDirectory => Path.Combine(GameDirectory, "Insider", "core");
 
     public string ConfigDirectory => Path.Combine(GameDirectory, "Insider", "config");
+
+    public string DataDirectory => Path.Combine(GameDirectory, "Insider", "data");
 
     public static BootstrapFixtureWorkspace Create(bool withMonoRuntime)
     {
@@ -1473,6 +1546,51 @@ public sealed class LoggingPlugin : IInsiderPlugin
     }
 }
 
+[InsiderPlugin("dev.insider.tests.directories-a", "Directories A", "1.0.0")]
+public sealed class DirectoryPluginA : IInsiderPlugin
+{
+    public static IInsiderContext? Context { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        Context = context;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.directories-b", "Directories B", "1.0.0")]
+public sealed class DirectoryPluginB : IInsiderPlugin
+{
+    public static IInsiderContext? Context { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        Context = context;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("../dev.insider.tests.directories-unsafe", "Unsafe Directories", "1.0.0")]
+public sealed class UnsafeDirectoryPlugin : IInsiderPlugin
+{
+    public static IInsiderContext? Context { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        Context = context;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
 [InsiderPlugin("dev.insider.tests.a", "A", "1.0.0")]
 public sealed class OrderedPluginA : IInsiderPlugin
 {
@@ -1666,19 +1784,39 @@ public sealed class OptionalDependencyPlugin : IInsiderPlugin
 
 internal sealed class TestContext : IInsiderContext
 {
+    private static readonly string RootDirectory = Path.Combine(
+        Path.GetTempPath(),
+        "insider-managed-context-tests",
+        Guid.NewGuid().ToString("N"));
+
     public TestContext(
         IInsiderHookService? hooks = null,
         IInsiderMainThread? mainThread = null)
     {
+        GameDirectory = Path.Combine(RootDirectory, "game");
+        InsiderDirectory = Path.Combine(GameDirectory, "Insider");
+        PluginDirectory = Path.Combine(InsiderDirectory, "plugins");
+        ConfigDirectory = Path.Combine(InsiderDirectory, "config");
+        DataDirectory = Path.Combine(InsiderDirectory, "data");
+        Directory.CreateDirectory(PluginDirectory);
+        Directory.CreateDirectory(ConfigDirectory);
+        Directory.CreateDirectory(DataDirectory);
+
         CapturedLogger = new TestLogger();
         Logger = CapturedLogger;
         MainThread = mainThread ?? new NoOpMainThread();
         Hooks = hooks ?? new NoOpHookService();
     }
 
-    public string GameDirectory { get; } = "/game";
+    public string GameDirectory { get; }
 
-    public string InsiderDirectory { get; } = "/game/Insider";
+    public string InsiderDirectory { get; }
+
+    public string PluginDirectory { get; }
+
+    public string ConfigDirectory { get; }
+
+    public string DataDirectory { get; }
 
     public IInsiderLogger Logger { get; }
 
@@ -1689,6 +1827,14 @@ internal sealed class TestContext : IInsiderContext
     public IInsiderMainThread MainThread { get; }
 
     public IInsiderHookService Hooks { get; }
+
+    public static void ResetDirectories()
+    {
+        if (Directory.Exists(RootDirectory))
+        {
+            Directory.Delete(RootDirectory, recursive: true);
+        }
+    }
 }
 
 internal sealed class NoOpMainThread : IInsiderMainThread
