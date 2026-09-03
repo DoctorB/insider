@@ -1,7 +1,7 @@
 # Plugin development
 
 Insider's plugin API targets .NET Standard 2.0 so the same contract can run on
-the modern Unity Mono profiles in the initial compatibility scope.
+modern Unity Mono profiles and Insider's private IL2CPP CoreCLR host.
 
 ## Create a plugin
 
@@ -51,6 +51,28 @@ The property is optional so existing plugins retain their current behavior.
 Insider intentionally provides no maximum version, wildcard, prerelease label,
 or range-expression syntax. `PluginDescriptor.MinimumInsiderVersion` exposes the
 declared value after a compatible plugin loads.
+
+## Backend capabilities
+
+Plugins receive the same lifecycle and directory contract on Mono and IL2CPP,
+but game integration is backend-specific. Check `context.Runtime` before using
+a hook or main-thread service:
+
+```csharp
+if (context.Runtime.SupportsManagedDetours)
+{
+    // Resolve a managed MethodBase and use context.Hooks.Detour.
+}
+else if (context.Runtime.SupportsNativeDetours && context.Il2Cpp is not null)
+{
+    // Resolve a verified IL2CPP native address and use DetourNative.
+}
+```
+
+`SupportsIlHooks`, `SupportsNativeDetours`, and `SupportsMainThread` describe the
+running backend directly. On IL2CPP, `context.Il2Cpp` resolves the small native
+metadata surface; on Mono it is `null`. See [il2cpp.md](il2cpp.md) before using
+native addresses or unmanaged delegates.
 
 ## Plugin-owned directories
 
@@ -380,6 +402,7 @@ dependencies in the shared `dependencies` subtree:
 
 ```text
 Insider/
+  runtime/win-x64/       Loader-owned private IL2CPP runtime; do not modify
   plugins/
     MyPlugin.dll
     dependencies/
@@ -415,16 +438,22 @@ If the game already contains the exact requested assembly identity, the runtime
 may reuse that resident copy. A different loaded identity with the same simple
 name is rejected; Insider cannot replace it safely.
 
-Unity Mono uses a shared application domain. `Unload()` is a lifecycle callback,
-not assembly unloading: managed assemblies remain resident until the game exits.
+Unity Mono uses a shared application domain, while the current IL2CPP host keeps
+one CoreCLR alive for the process. `Unload()` is a lifecycle callback, not
+assembly unloading: managed assemblies remain resident until the game exits.
 Plugin authors should therefore coordinate on common dependency versions and
 avoid modifying global state they cannot restore. Insider removes context-owned
-detours and IL hooks, but it cannot undo changes made through third-party
+managed detours, native detours, and IL hooks, but it cannot undo changes made through third-party
 hooking APIs.
 Insider reads managed images into memory and does not intentionally keep the
 source DLL files open.
 
 ## Unity main thread
+
+This API currently exists only when
+`context.Runtime.SupportsMainThread` is `true`, which means the Unity Mono
+backend. The essential IL2CPP backend fails `Post` and `RegisterUpdate` with
+`NotSupportedException` until it has a proven player-loop integration.
 
 Plugins are loaded by Insider's early bootstrap thread. Do not call Unity APIs
 directly from `Load()`. Post the smallest Unity-facing operation through the

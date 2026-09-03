@@ -120,4 +120,6 @@ or general player-loop event model. These features can be added later only when
 a concrete use case justifies the extra contract.
 
 This dispatcher supports the experimental Windows x64 Unity Mono backend only.
-It does not provide an IL2CPP runtime integration layer.
+The essential IL2CPP context still exposes the interface so plugins can share a
+contract, but reports `SupportsMainThread == false`; `Post` and `RegisterUpdate`
+throw a readable `NotSupportedException`. It does not guess at a player loop.

@@ -1,8 +1,8 @@
 # Third-party notices
 
-Insider Windows packages redistribute the following .NET Standard 2.0 runtime
-components for the managed hooking backend. They are not relicensed under the
-Insider Apache-2.0 license.
+Insider Windows packages redistribute the following managed hooking components
+and the private .NET runtime used by the IL2CPP backend. They are not relicensed
+under the Insider Apache-2.0 license.
 
 ## Components
 
@@ -16,12 +16,15 @@ Insider Apache-2.0 license.
 | Mono.Cecil | 0.11.6 | `Mono.Cecil.dll`, `Mono.Cecil.Mdb.dll`, `Mono.Cecil.Pdb.dll`, `Mono.Cecil.Rocks.dll` | MIT | [Mono.Cecil](https://github.com/jbevain/cecil) |
 | System.Reflection.Emit.ILGeneration | 4.7.0 | `System.Reflection.Emit.ILGeneration.dll` | MIT | [.NET CoreFX](https://github.com/dotnet/corefx) |
 | System.Reflection.Emit.Lightweight | 4.7.0 | `System.Reflection.Emit.Lightweight.dll` | MIT | [.NET CoreFX](https://github.com/dotnet/corefx) |
+| Microsoft .NET Runtime | 10.0.x | Private CoreCLR runtime under `Insider/runtime/win-x64` | MIT | [.NET Runtime](https://github.com/dotnet/runtime) |
 
 Package metadata and dependency versions are resolved from NuGet. Insider
 references RuntimeDetour for the backend and MonoMod.Utils for the public
 `ILContext` contract. Their package pages are
 [MonoMod.RuntimeDetour 25.3.6](https://www.nuget.org/packages/MonoMod.RuntimeDetour/25.3.6)
 and [MonoMod.Utils 25.0.14](https://www.nuget.org/packages/MonoMod.Utils/25.0.14).
+The IL2CPP runtime is selected by the .NET 10 SDK during self-contained
+`win-x64` publishing; every installed file is hashed in `Insider/install.json`.
 
 ## Redistributed assembly hashes
 

@@ -6,13 +6,17 @@ test evidence. A Unity version alone is not a sufficient compatibility claim.
 | Backend | Operating system | Architecture | Status |
 | --- | --- | --- | --- |
 | Unity Mono | Windows | x64 | Experimental; real-player smoke passed on Unity 2022.3.62f2 |
+| Unity IL2CPP | Windows | x64 | Essential; packaged CoreCLR bootstrap fixture passed, real Unity player still required |
 | Unity Mono | Windows | x86 | Planned |
 | Unity Mono | Linux/macOS | Any | Planned |
-| Unity IL2CPP | Any | Any | Not implemented |
+| Unity IL2CPP | Windows | x86/arm64 | Planned |
+| Unity IL2CPP | Linux/macOS | Any | Planned |
 
 ## Definitions
 
 - **First target:** active implementation scope, not a supported release.
+- **Essential:** the minimal backend path is implemented and fixture-tested,
+  with deliberately limited APIs and no broad game compatibility promise.
 - **Experimental:** demonstrated in a fixture but not covered by a stable policy.
 - **Supported:** covered by automated fixtures and a documented release policy.
 - **Planned:** no compatibility promise.
@@ -20,8 +24,10 @@ test evidence. A Unity version alone is not a sufficient compatibility claim.
 ## Runtime detection
 
 `Insider.Cli inspect` uses the executable architecture and standard Unity player
-layout to report likely Mono or IL2CPP use. Detection is diagnostic and does not
-replace an end-to-end launch test.
+layout to report likely Mono or IL2CPP use. An IL2CPP target is installable only
+when both `GameAssembly.dll` and
+`<game>_Data/il2cpp_data/Metadata/global-metadata.dat` exist. Detection is
+diagnostic and does not replace an end-to-end launch test.
 
 `Insider.Cli diagnose` includes the same detection in a larger read-only report
 covering installation and plugin health. It does not launch the player, so a
@@ -39,14 +45,38 @@ arbitrary ranges, prerelease labels, or wildcards.
 ## Native bootstrap assumptions
 
 The experimental Windows x64 bootstrap relies on the game loading a local
-`version.dll` and on Unity exporting the standard Mono embedding functions from
-`mono-2.0-bdwgc.dll`, `mono-2.0-sgen.dll`, or `mono.dll`. Games that do not meet
-both conditions require a different bootstrap adapter and are not currently
-supported.
+`version.dll`. Mono players must export the standard embedding functions from
+`mono-2.0-bdwgc.dll`, `mono-2.0-sgen.dll`, or `mono.dll`.
+
+IL2CPP players must load `GameAssembly.dll` and expose the standard metadata
+exports used by Insider. The package starts its private self-contained CoreCLR
+through `hostfxr`; it does not require a machine-wide runtime or a second mod
+loader. A process that has already initialized an incompatible CoreCLR, a game
+that does not load the local proxy, or protected/modified runtime exports may
+require another bootstrap adapter.
 
 The automated fake-Mono fixture validates only the embedding calls made by the
 native bootstrap. It does not execute managed assemblies or model Unity's main
 thread and therefore does not change the support status by itself.
+
+## IL2CPP evidence and limits
+
+The automated native fixture validates runtime selection and the exact
+self-contained application-hosting sequence. A second packaged smoke fixture
+installs Insider into a synthetic Windows x64 IL2CPP layout, loads the fake
+`GameAssembly.dll`, enters the real redistributed `hostfxr` and CoreCLR, starts
+the managed IL2CPP host, detects `UnityIl2Cpp`, waits for the domain, and
+loads a managed fixture plugin. The plugin resolves a fake IL2CPP assembly,
+type, and method, changes a native result from `7` to `42`, removes the detour,
+and observes `7` again. It therefore tests the real loader package and native
+hook backend, not only a simulated hostfxr API.
+
+This does not yet prove a real Unity IL2CPP player, automatic game type proxies,
+arbitrary Unity metadata versions, stripped or generic methods, main-thread
+dispatch, or a production game method. The public backend exposes only raw
+exports, metadata/method resolution, and loader-owned native detours. Managed
+`MethodBase` detours and `ModifyIl` do not target compiled IL2CPP game code.
+See [il2cpp.md](il2cpp.md) for the exact contract and safety rules.
 
 ## Real-player evidence
 

@@ -1,6 +1,6 @@
 # ADR 0001: Build a loader-owned Unity mod runtime
 
-- Status: Accepted
+- Status: Accepted; extended by ADR 0016 for IL2CPP
 - Date: 2026-08-31
 
 ## Context
@@ -13,7 +13,8 @@ lifecycle, diagnostics, and installation.
 
 Insider will be an independent Unity mod loader and SDK. It will be loader
 agnostic at its public API boundary and will not depend on BepInEx or MelonLoader.
-The first implementation target is Unity Mono on Windows x64.
+The first implementation target was Unity Mono on Windows x64. ADR 0016 adds a
+separate essential Windows x64 IL2CPP backend.
 
 ## Consequences
 

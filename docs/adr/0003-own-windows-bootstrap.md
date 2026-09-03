@@ -1,6 +1,6 @@
 # ADR 0003: Own the first Windows bootstrap
 
-- Status: Accepted
+- Status: Accepted; extended by ADR 0016 for IL2CPP
 - Date: 2026-08-31
 
 ## Context
@@ -25,6 +25,7 @@ not the default packaged path.
 - Insider can be installed and run without BepInEx or Doorstop.
 - Native ABI correctness and proxy compatibility become Insider's
   responsibility.
-- The first package is intentionally Windows x64 and Unity/Mono only.
+- The first implementation was intentionally Windows x64 and Unity/Mono only;
+  ADR 0016 adds a separate IL2CPP path without simulating Mono behavior.
 - End-to-end game fixtures are required before changing the status from
   experimental to supported.

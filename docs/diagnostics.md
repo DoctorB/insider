@@ -14,7 +14,8 @@ instances, invoke `Load()` or `Unload()`, or change any file.
 The report has five parts:
 
 1. **Game** shows the executable, Unity layout, scripting backend, architecture,
-   and whether it matches Insider's current Windows x64 Unity Mono target.
+   and whether it matches Insider's current Windows x64 Unity Mono or complete
+   IL2CPP layout.
 2. **Installation** verifies `Insider/install.json` and the hashes of every
    loader-owned file.
 3. **Plugins** lists each discovered plugin as `Ready`, `Disabled`, or `Problem`.
@@ -54,6 +55,8 @@ The command returns a problem for any of these conditions:
 
 - missing executable, unrecognized Unity layout, or unsupported backend or
   architecture;
+- an incomplete IL2CPP layout missing `GameAssembly.dll` or
+  `global-metadata.dat`;
 - missing, damaged, modified, or unreadable Insider installation files;
 - unreadable managed assemblies or ambiguous managed dependency candidates;
 - missing plugin metadata, invalid plugin or minimum versions, duplicate plugin

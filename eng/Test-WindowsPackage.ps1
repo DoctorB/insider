@@ -36,7 +36,15 @@ $requiredFiles = @(
     "bundle/core/MonoMod.Utils.dll",
     "bundle/core/System.Reflection.Emit.ILGeneration.dll",
     "bundle/core/System.Reflection.Emit.Lightweight.dll",
-    "bundle/native/win-x64/version.dll"
+    "bundle/native/win-x64/version.dll",
+    "bundle/runtime/win-x64/hostfxr.dll",
+    "bundle/runtime/win-x64/hostpolicy.dll",
+    "bundle/runtime/win-x64/coreclr.dll",
+    "bundle/runtime/win-x64/System.Private.CoreLib.dll",
+    "bundle/runtime/win-x64/Insider.Il2CppHost.exe",
+    "bundle/runtime/win-x64/Insider.Il2CppHost.dll",
+    "bundle/runtime/win-x64/Insider.Il2CppHost.deps.json",
+    "bundle/runtime/win-x64/Insider.Il2CppHost.runtimeconfig.json"
 )
 
 foreach ($relativePath in $requiredFiles) {

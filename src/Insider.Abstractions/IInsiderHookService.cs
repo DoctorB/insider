@@ -5,10 +5,24 @@ using MonoMod.Cil;
 namespace Insider;
 
 /// <summary>
-/// Creates loader-owned managed detours and IL hooks.
+/// Creates loader-owned managed detours, native detours, and IL hooks.
 /// </summary>
 public interface IInsiderHookService
 {
+    /// <summary>
+    /// Replaces or wraps a native function until the returned handle is disposed.
+    /// </summary>
+    /// <param name="target">The non-zero native function address to detour.</param>
+    /// <param name="replacement">
+    /// An unmanaged-compatible delegate. It may be preceded by an original-call
+    /// delegate with the same native signature.
+    /// </param>
+    /// <returns>An idempotent handle that removes the native detour.</returns>
+    /// <exception cref="InsiderHookException">
+    /// The runtime backend could not apply or remove the native detour.
+    /// </exception>
+    IDisposable DetourNative(IntPtr target, Delegate replacement);
+
     /// <summary>
     /// Replaces or wraps a managed method or instance constructor until the returned handle is disposed.
     /// </summary>

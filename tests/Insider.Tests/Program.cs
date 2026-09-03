@@ -29,6 +29,7 @@ internal static class Program
             ("contains plugin load failures", ContainsLoadFailure),
             ("scopes plugin log messages by id", ScopesPluginLogMessagesById),
             ("scopes persistent directories by plugin id", ScopesPersistentDirectoriesByPluginId),
+            ("passes the IL2CPP runtime through plugin contexts", PassesIl2CppRuntimeThroughPluginContexts),
             ("contains plugin main-thread callback failures", ContainsPluginMainThreadCallbackFailures),
             ("cancels queued main-thread callbacks during plugin unload", CancelsQueuedMainThreadCallbacksDuringUnload),
             ("removes plugin update callbacks during unload", RemovesPluginUpdateCallbacksDuringUnload),
@@ -44,6 +45,7 @@ internal static class Program
             ("rejects incompatible managed detour signatures", RejectsIncompatibleManagedDetourSignatures),
             ("rejects multicast managed detour replacements", RejectsMulticastManagedDetourReplacement),
             ("chains and selectively removes managed detours", ChainsAndSelectivelyRemovesManagedDetours),
+            ("owns native detours for the plugin lifetime", OwnsNativeDetoursForPluginLifetime),
             ("removes plugin detours during unload", RemovesPluginDetoursDuringUnload),
             ("removes plugin detours after failed load", RemovesPluginDetoursAfterFailedLoad),
             ("preserves other plugin detours after failed load", PreservesOtherPluginDetoursAfterFailedLoad),
@@ -82,6 +84,9 @@ internal static class Program
             ("skips plugins in the bootstrap disable list", SkipsPluginsInBootstrapDisableList),
             ("rejects conflicting plugin dependency versions", RejectsConflictingPluginDependencyVersions),
             ("fails closed on an unsupported managed runtime", FailsClosedOnUnsupportedManagedRuntime),
+            ("reports backend-specific runtime capabilities", ReportsBackendSpecificRuntimeCapabilities),
+            ("recognizes complete IL2CPP game layouts", RecognizesCompleteIl2CppGameLayouts),
+            ("rejects main-thread work on the essential IL2CPP backend", RejectsIl2CppMainThreadWork),
             ("installs and uninstalls without losing an existing proxy", InstallsAndRestoresExistingProxy),
             ("refuses to remove modified installation files", RefusesToRemoveModifiedFiles),
             ("manages disabled plugins through the CLI", ManagesDisabledPluginsThroughCli),
@@ -203,6 +208,20 @@ internal static class Program
         host.UnloadAll();
         Assert(File.Exists(configFile), "Plugin configuration was removed during unload.");
         Assert(File.Exists(dataFile), "Plugin data was removed during unload.");
+    }
+
+    private static void PassesIl2CppRuntimeThroughPluginContexts()
+    {
+        var il2Cpp = new TestIl2CppRuntime();
+        var inner = new TestContext(il2Cpp: il2Cpp);
+        using var host = new PluginHost(inner);
+
+        var result = host.Load(typeof(Il2CppContextPlugin));
+
+        Assert(result.Succeeded, result.Error ?? "The IL2CPP context plugin did not load.");
+        Assert(
+            ReferenceEquals(Il2CppContextPlugin.Runtime, il2Cpp),
+            "The plugin context replaced or lost the IL2CPP runtime bridge.");
     }
 
     private static void ContainsPluginMainThreadCallbackFailures()
@@ -530,6 +549,21 @@ internal static class Program
         }
 
         Assert(ManagedHookTarget.Value() == 7, "Removing the managed detour chain did not restore the target.");
+    }
+
+    private static void OwnsNativeDetoursForPluginLifetime()
+    {
+        var hooks = new TrackingHookService(failuresBeforeSuccess: new[] { 0 });
+        using var host = CreateHost(hooks);
+
+        var result = host.Load(typeof(NativeHookingPlugin));
+        Assert(result.Succeeded, result.Error ?? "The native-hooking plugin did not load.");
+        host.UnloadAll();
+
+        var nativeHook = hooks.Hooks.Single();
+        Assert(nativeHook.Kind == "native detour", "The plugin hook service did not create a native detour.");
+        Assert(nativeHook.IsDisposed, "Plugin context cleanup did not remove its native detour.");
+        Assert(nativeHook.DisposeAttempts == 1, "The native detour was not removed exactly once.");
     }
 
     private static void RemovesPluginDetoursDuringUnload()
@@ -1165,6 +1199,77 @@ internal static class Program
         Assert(File.ReadAllText(result.LogPath).Contains("is not supported by this build", StringComparison.Ordinal), "Unsupported runtime was not logged.");
     }
 
+    private static void ReportsBackendSpecificRuntimeCapabilities()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "insider-runtime-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "MonoBleedingEdge"));
+        try
+        {
+            using var environment = EnvironmentVariableScope.Clear("DOORSTOP_MONO_LIB_PATH");
+            var mono = RuntimeDetector.Detect(root);
+            Assert(mono.Backend == InsiderRuntimeBackend.UnityMono, "The Mono fixture reported the wrong backend.");
+            Assert(mono.SupportsManagedDetours, "The Mono backend did not report managed-detour support.");
+            Assert(mono.SupportsIlHooks, "The Mono backend did not report IL-hook support.");
+            Assert(mono.SupportsNativeDetours, "The Mono backend did not report native-detour support.");
+            Assert(mono.SupportsMainThread, "The Mono backend did not report main-thread support.");
+
+            File.WriteAllText(Path.Combine(root, "GameAssembly.dll"), "fake-il2cpp-runtime");
+            var il2Cpp = RuntimeDetector.Detect(root);
+            Assert(il2Cpp.Backend == InsiderRuntimeBackend.UnityIl2Cpp, "The IL2CPP fixture reported the wrong backend.");
+            Assert(!il2Cpp.SupportsManagedDetours, "The IL2CPP backend advertised managed detours.");
+            Assert(!il2Cpp.SupportsIlHooks, "The IL2CPP backend advertised managed IL hooks.");
+            Assert(il2Cpp.SupportsNativeDetours, "The IL2CPP backend did not report native-detour support.");
+            Assert(!il2Cpp.SupportsMainThread, "The essential IL2CPP backend advertised main-thread support.");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void RecognizesCompleteIl2CppGameLayouts()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "insider-il2cpp-layout-tests", Guid.NewGuid().ToString("N"));
+        var gameExecutable = Path.Combine(root, "TestGame.exe");
+        var metadataDirectory = Path.Combine(root, "TestGame_Data", "il2cpp_data", "Metadata");
+        Directory.CreateDirectory(metadataDirectory);
+        try
+        {
+            WriteMinimalPe(gameExecutable, machine: 0x8664);
+            File.WriteAllText(Path.Combine(root, "GameAssembly.dll"), "fake-il2cpp-runtime");
+            var metadataPath = Path.Combine(metadataDirectory, "global-metadata.dat");
+            File.WriteAllText(metadataPath, "fake-il2cpp-metadata");
+
+            var complete = UnityGameInspector.Inspect(gameExecutable);
+            Assert(complete.IsUnityGame, "The complete IL2CPP layout was not recognized as Unity.");
+            Assert(complete.Backend == UnityScriptingBackend.Il2Cpp, "The complete layout reported the wrong backend.");
+            Assert(complete.Architecture == "x64", "The complete layout reported the wrong architecture.");
+            Assert(complete.IsCurrentTarget, "The complete Windows x64 IL2CPP layout was rejected.");
+
+            File.Delete(metadataPath);
+            var incomplete = UnityGameInspector.Inspect(gameExecutable);
+            Assert(!incomplete.IsCurrentTarget, "An IL2CPP layout without metadata was accepted.");
+            Assert(incomplete.Note.Contains("incomplete", StringComparison.OrdinalIgnoreCase), "Incomplete IL2CPP diagnostics were unclear.");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void RejectsIl2CppMainThreadWork()
+    {
+        var mainThread = new UnavailableMainThread();
+        Assert(!mainThread.IsReady && !mainThread.IsCurrent, "The unavailable IL2CPP main thread reported itself ready.");
+
+        var postFailure = AssertThrows<NotSupportedException>(() => mainThread.Post(() => { }));
+        var updateFailure = AssertThrows<NotSupportedException>(() => mainThread.RegisterUpdate(() => { }));
+        Assert(
+            postFailure.Message.Contains("IL2CPP", StringComparison.Ordinal) &&
+            updateFailure.Message.Contains("IL2CPP", StringComparison.Ordinal),
+            "Unavailable IL2CPP main-thread work was not diagnosed clearly.");
+    }
+
     private static void InstallsAndRestoresExistingProxy()
     {
         using var fixture = InstallationFixture.Create(withExistingProxy: true);
@@ -1175,6 +1280,8 @@ internal static class Program
         Assert(installed.State == InsiderInstallationState.Installed, "Installation did not report success.");
         Assert(File.ReadAllText(Path.Combine(fixture.GameDirectory, "version.dll")) == "insider-native", "Native proxy was not installed.");
         Assert(Directory.Exists(Path.Combine(fixture.GameDirectory, "Insider", "plugins")), "Plugin directory was not created.");
+        var hostFxrPath = Path.Combine(fixture.GameDirectory, "Insider", "runtime", "win-x64", "hostfxr.dll");
+        Assert(File.ReadAllText(hostFxrPath) == "hostfxr", "The private IL2CPP runtime was not installed.");
         var configDirectory = Path.Combine(fixture.GameDirectory, "Insider", "config");
         Assert(Directory.Exists(configDirectory), "Plugin configuration directory was not created.");
         var dataDirectory = Path.Combine(fixture.GameDirectory, "Insider", "data");
@@ -1189,6 +1296,7 @@ internal static class Program
         Assert(removed.State == InsiderInstallationState.NotInstalled, "Uninstall did not complete.");
         Assert(File.ReadAllText(Path.Combine(fixture.GameDirectory, "version.dll")) == "original-proxy", "Original proxy was not restored.");
         Assert(!File.Exists(Path.Combine(fixture.GameDirectory, "Insider", "install.json")), "Manifest was not removed.");
+        Assert(!File.Exists(hostFxrPath), "Uninstall left a private IL2CPP runtime file behind.");
         Assert(File.Exists(disabledPluginPath), "Uninstall removed the user-owned disabled-plugin list.");
         Assert(File.Exists(pluginDataPath), "Uninstall removed user-owned plugin data.");
     }
@@ -1446,6 +1554,18 @@ internal static class Program
             ?? throw new InvalidOperationException($"Constructor on '{type.FullName}' was not found.");
     }
 
+    private static void WriteMinimalPe(string path, ushort machine)
+    {
+        var image = new byte[0x88];
+        image[0] = 0x4D;
+        image[1] = 0x5A;
+        BitConverter.GetBytes(0x80).CopyTo(image, 0x3C);
+        image[0x80] = 0x50;
+        image[0x81] = 0x45;
+        BitConverter.GetBytes(machine).CopyTo(image, 0x84);
+        File.WriteAllBytes(path, image);
+    }
+
     private static void ResetFixtures()
     {
         ValidPlugin.LoadCount = 0;
@@ -1475,6 +1595,7 @@ internal static class Program
         DirectoryPluginA.Context = null;
         DirectoryPluginB.Context = null;
         UnsafeDirectoryPlugin.Context = null;
+        Il2CppContextPlugin.Runtime = null;
         TestContext.ResetDirectories();
     }
 
@@ -1657,8 +1778,11 @@ internal sealed class InstallationFixture : IDisposable
         Directory.CreateDirectory(gameDirectory);
         Directory.CreateDirectory(Path.Combine(bundleDirectory, "native", "win-x64"));
         Directory.CreateDirectory(Path.Combine(bundleDirectory, "core"));
+        Directory.CreateDirectory(Path.Combine(bundleDirectory, "runtime", "win-x64"));
         File.WriteAllText(gameExecutable, "test-game");
         File.WriteAllText(Path.Combine(bundleDirectory, "native", "win-x64", "version.dll"), "insider-native");
+        File.WriteAllText(Path.Combine(bundleDirectory, "runtime", "win-x64", "hostfxr.dll"), "hostfxr");
+        File.WriteAllText(Path.Combine(bundleDirectory, "runtime", "win-x64", "Insider.Il2CppHost.dll"), "il2cpp-host");
         var managedFiles = new[]
         {
             "Insider.Abstractions.dll",
@@ -1805,6 +1929,21 @@ public sealed class UnsafeDirectoryPlugin : IInsiderPlugin
     public void Load(IInsiderContext context)
     {
         Context = context;
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.il2cpp-context", "IL2CPP Context", "1.0.0")]
+public sealed class Il2CppContextPlugin : IInsiderPlugin
+{
+    public static IInsiderIl2CppRuntime? Runtime { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        Runtime = context.Il2Cpp;
     }
 
     public void Unload()
@@ -2080,7 +2219,8 @@ internal sealed class TestContext : IInsiderContext
 
     public TestContext(
         IInsiderHookService? hooks = null,
-        IInsiderMainThread? mainThread = null)
+        IInsiderMainThread? mainThread = null,
+        IInsiderIl2CppRuntime? il2Cpp = null)
     {
         GameDirectory = Path.Combine(RootDirectory, "game");
         InsiderDirectory = Path.Combine(GameDirectory, "Insider");
@@ -2095,6 +2235,7 @@ internal sealed class TestContext : IInsiderContext
         Logger = CapturedLogger;
         MainThread = mainThread ?? new NoOpMainThread();
         Hooks = hooks ?? new NoOpHookService();
+        Il2Cpp = il2Cpp;
     }
 
     public string GameDirectory { get; }
@@ -2112,6 +2253,8 @@ internal sealed class TestContext : IInsiderContext
     public TestLogger CapturedLogger { get; }
 
     public IInsiderRuntimeInfo Runtime { get; } = new TestRuntimeInfo();
+
+    public IInsiderIl2CppRuntime? Il2Cpp { get; }
 
     public IInsiderMainThread MainThread { get; }
 
@@ -2249,6 +2392,11 @@ internal sealed class CapturingMainThreadHookService : IInsiderHookService
 
     public int OriginalCalls { get; private set; }
 
+    public IDisposable DetourNative(IntPtr target, Delegate replacement)
+    {
+        throw new NotSupportedException("The main-thread fixture does not install native hooks.");
+    }
+
     public IDisposable Detour(MethodBase target, Delegate replacement)
     {
         Target = target;
@@ -2319,6 +2467,11 @@ internal static class ManagedMainThreadFixture
 
 internal sealed class NoOpHookService : IInsiderHookService
 {
+    public IDisposable DetourNative(IntPtr target, Delegate replacement)
+    {
+        return new NoOpHook();
+    }
+
     public IDisposable Detour(MethodBase target, Delegate replacement)
     {
         return new NoOpHook();
@@ -2347,6 +2500,11 @@ internal sealed class TrackingHookService : IInsiderHookService
     }
 
     public List<TrackingHook> Hooks { get; } = new List<TrackingHook>();
+
+    public IDisposable DetourNative(IntPtr target, Delegate replacement)
+    {
+        return Track("native detour");
+    }
 
     public IDisposable Detour(MethodBase target, Delegate replacement)
     {
@@ -2424,6 +2582,55 @@ internal sealed class TestRuntimeInfo : IInsiderRuntimeInfo
     public string Architecture { get; } = "x64";
 
     public string RuntimeVersion { get; } = "Test";
+
+    public bool SupportsManagedDetours => true;
+
+    public bool SupportsIlHooks => true;
+
+    public bool SupportsNativeDetours => true;
+
+    public bool SupportsMainThread => true;
+}
+
+internal sealed class TestIl2CppRuntime : IInsiderIl2CppRuntime
+{
+    public bool IsReady => true;
+
+    public IntPtr ResolveExport(string name)
+    {
+        _ = name;
+        return new IntPtr(1);
+    }
+
+    public IntPtr ResolveMethodInfo(
+        string assemblyName,
+        string namespaceName,
+        string typeName,
+        string methodName,
+        int parameterCount)
+    {
+        _ = assemblyName;
+        _ = namespaceName;
+        _ = typeName;
+        _ = methodName;
+        _ = parameterCount;
+        return new IntPtr(2);
+    }
+
+    public IntPtr ResolveMethod(
+        string assemblyName,
+        string namespaceName,
+        string typeName,
+        string methodName,
+        int parameterCount)
+    {
+        _ = assemblyName;
+        _ = namespaceName;
+        _ = typeName;
+        _ = methodName;
+        _ = parameterCount;
+        return new IntPtr(3);
+    }
 }
 
 internal static class ManagedHookTarget
@@ -2854,6 +3061,19 @@ public sealed class HookingPlugin : IInsiderPlugin
         var target = typeof(ManagedHookTarget).GetMethod(nameof(ManagedHookTarget.Value))
             ?? throw new InvalidOperationException("Managed hook target was not found.");
         _ = context.Hooks.Detour(target, (Func<int>)ManagedHookTarget.Replacement);
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.native-hooking", "Native Hooking", "1.0.0")]
+public sealed class NativeHookingPlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        _ = context.Hooks.DetourNative(new IntPtr(1), (Action)(() => { }));
     }
 
     public void Unload()

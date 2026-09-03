@@ -147,6 +147,7 @@ if (Test-Path -LiteralPath $smokeRoot) {
 
 $nativeBuild = Join-Path $smokeRoot "native"
 $cliPublish = Join-Path $smokeRoot "cli"
+$il2CppRuntimePublish = Join-Path $smokeRoot "il2cpp-runtime"
 $packageDirectory = Join-Path $smokeRoot "package"
 $playerDirectory = Join-Path $smokeRoot "player"
 $playerExecutable = Join-Path $playerDirectory "InsiderUnityMonoSmoke.exe"
@@ -155,6 +156,7 @@ $playerLog = Join-Path $smokeRoot "unity-player.log"
 $unityProject = Join-Path $repositoryRoot "tests/UnityMonoSmoke"
 $solution = Join-Path $repositoryRoot "Insider.slnx"
 $cliProject = Join-Path $repositoryRoot "src/Insider.Cli/Insider.Cli.csproj"
+$il2CppHostProject = Join-Path $repositoryRoot "src/Insider.Il2CppHost/Insider.Il2CppHost.csproj"
 $smokePlugin = Join-Path $repositoryRoot "tests/Insider.UnityMonoSmokePlugin/bin/$Configuration/netstandard2.0/Insider.UnityMonoSmokePlugin.dll"
 
 New-Item -ItemType Directory -Path $smokeRoot -Force | Out-Null
@@ -169,6 +171,16 @@ Invoke-CheckedProcess "dotnet" @(
     "publish", $cliProject,
     "--configuration", $Configuration,
     "--output", $cliPublish,
+    "--nologo"
+) 300
+
+Invoke-CheckedProcess "dotnet" @(
+    "publish", $il2CppHostProject,
+    "--configuration", $Configuration,
+    "--runtime", "win-x64",
+    "--self-contained", "true",
+    "-p:UseAppHost=true",
+    "--output", $il2CppRuntimePublish,
     "--nologo"
 ) 300
 
@@ -187,10 +199,12 @@ Invoke-CheckedProcess $cmakePath @(
 $nativeBootstrap = Join-Path $nativeBuild "Insider.Bootstrap.Native/$Configuration/version.dll"
 $relativeNative = [System.IO.Path]::GetRelativePath($repositoryRoot, $nativeBootstrap)
 $relativeCli = [System.IO.Path]::GetRelativePath($repositoryRoot, $cliPublish)
+$relativeIl2CppRuntime = [System.IO.Path]::GetRelativePath($repositoryRoot, $il2CppRuntimePublish)
 $relativePackage = [System.IO.Path]::GetRelativePath($repositoryRoot, $packageDirectory)
 & (Join-Path $repositoryRoot "eng/Build-WindowsPackage.ps1") `
     -NativeBootstrap $relativeNative `
     -CliPublishDirectory $relativeCli `
+    -Il2CppRuntimeDirectory $relativeIl2CppRuntime `
     -Configuration $Configuration `
     -OutputDirectory $relativePackage
 & (Join-Path $repositoryRoot "eng/Test-WindowsPackage.ps1") `

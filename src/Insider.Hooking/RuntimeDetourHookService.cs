@@ -7,6 +7,35 @@ namespace Insider.Hooking;
 
 public sealed class RuntimeDetourHookService : IInsiderHookService
 {
+    public IDisposable DetourNative(IntPtr target, Delegate replacement)
+    {
+        if (target == IntPtr.Zero)
+        {
+            throw new ArgumentException("A non-zero native target address is required.", nameof(target));
+        }
+
+        if (replacement is null)
+        {
+            throw new ArgumentNullException(nameof(replacement));
+        }
+
+        if (replacement.GetInvocationList().Length != 1)
+        {
+            throw new ArgumentException("A replacement delegate must contain exactly one invocation target.", nameof(replacement));
+        }
+
+        try
+        {
+            return new RuntimeHookHandle(new NativeHook(target, replacement), FormatAddress(target), "native detour");
+        }
+        catch (Exception exception)
+        {
+            throw new InsiderHookException(
+                $"Could not apply native detour to '{FormatAddress(target)}'.",
+                exception);
+        }
+    }
+
     public IDisposable Detour(MethodBase target, Delegate replacement)
     {
         if (target is null)
@@ -335,6 +364,13 @@ public sealed class RuntimeDetourHookService : IInsiderHookService
         var parameters = target.GetParameters();
         var parameterTypes = GetParameterTypes(parameters);
         return $"{declaringType}.{methodName}{FormatParameters(parameterTypes)}";
+    }
+
+    private static string FormatAddress(IntPtr address)
+    {
+        return IntPtr.Size == 8
+            ? $"0x{address.ToInt64():X16}"
+            : $"0x{address.ToInt32():X8}";
     }
 
     private static string FormatParameters(Type[] parameters)

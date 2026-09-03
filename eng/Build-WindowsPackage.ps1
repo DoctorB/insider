@@ -6,6 +6,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string] $CliPublishDirectory,
 
+    [Parameter(Mandatory = $true)]
+    [string] $Il2CppRuntimeDirectory,
+
     [string] $Configuration = "Release",
 
     [string] $OutputDirectory = "artifacts/Insider-windows-x64"
@@ -18,6 +21,7 @@ $artifactsRoot = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot "artif
 $outputPath = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $OutputDirectory))
 $nativePath = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $NativeBootstrap))
 $cliPath = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $CliPublishDirectory))
+$il2CppRuntimePath = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $Il2CppRuntimeDirectory))
 $artifactsPrefix = $artifactsRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
 
 if (-not $outputPath.StartsWith($artifactsPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -30,6 +34,10 @@ if (-not (Test-Path -LiteralPath $nativePath -PathType Leaf)) {
 
 if (-not (Test-Path -LiteralPath $cliPath -PathType Container)) {
     throw "Published CLI directory not found: '$cliPath'."
+}
+
+if (-not (Test-Path -LiteralPath $il2CppRuntimePath -PathType Container)) {
+    throw "Published IL2CPP runtime directory not found: '$il2CppRuntimePath'."
 }
 
 $coreFiles = @(
@@ -60,10 +68,14 @@ if (Test-Path -LiteralPath $outputPath) {
 
 $bundleCore = Join-Path $outputPath "bundle/core"
 $bundleNative = Join-Path $outputPath "bundle/native/win-x64"
-New-Item -ItemType Directory -Path $outputPath, $bundleCore, $bundleNative -Force | Out-Null
+$bundleIl2CppRuntime = Join-Path $outputPath "bundle/runtime/win-x64"
+New-Item -ItemType Directory -Path $outputPath, $bundleCore, $bundleNative, $bundleIl2CppRuntime -Force | Out-Null
 
 Get-ChildItem -LiteralPath $cliPath -Force | Copy-Item -Destination $outputPath -Recurse -Force
 Copy-Item -LiteralPath $nativePath -Destination (Join-Path $bundleNative "version.dll")
+Get-ChildItem -LiteralPath $il2CppRuntimePath -File | Where-Object {
+    $_.Extension -ne ".pdb"
+} | Copy-Item -Destination $bundleIl2CppRuntime
 
 foreach ($file in $coreFiles) {
     $source = Join-Path $repositoryRoot "src/$($file.Replace('.dll', ''))/bin/$Configuration/netstandard2.0/$file"

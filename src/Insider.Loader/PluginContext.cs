@@ -78,6 +78,8 @@ internal sealed class PluginContext : IInsiderContext, IDisposable
 
     public IInsiderRuntimeInfo Runtime => _inner.Runtime;
 
+    public IInsiderIl2CppRuntime? Il2Cpp => _inner.Il2Cpp;
+
     public IInsiderMainThread MainThread => _mainThread;
 
     public IInsiderHookService Hooks => _hooks;

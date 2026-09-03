@@ -4,6 +4,7 @@
     <Project Path="src/Insider.Bootstrap/Insider.Bootstrap.csproj" />
     <Project Path="src/Insider.Cli/Insider.Cli.csproj" />
     <Project Path="src/Insider.Hooking/Insider.Hooking.csproj" />
+    <Project Path="src/Insider.Il2CppHost/Insider.Il2CppHost.csproj" />
     <Project Path="src/Insider.Installation/Insider.Installation.csproj" />
     <Project Path="src/Insider.Loader/Insider.Loader.csproj" />
   </Folder>
@@ -14,6 +15,7 @@
     <Project Path="tests/Insider.DiagnosticFixture/Insider.DiagnosticFixture.csproj" />
     <Project Path="tests/Insider.DependencyFixture.V1/Insider.DependencyFixture.V1.csproj" />
     <Project Path="tests/Insider.DependencyFixture.V2/Insider.DependencyFixture.V2.csproj" />
+    <Project Path="tests/Insider.Il2CppSmokePlugin/Insider.Il2CppSmokePlugin.csproj" />
     <Project Path="tests/Insider.PluginFixture/Insider.PluginFixture.csproj" />
     <Project Path="tests/Insider.Tests/Insider.Tests.csproj" />
     <Project Path="tests/Insider.UnityMonoSmokePlugin/Insider.UnityMonoSmokePlugin.csproj" />

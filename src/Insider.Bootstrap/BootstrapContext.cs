@@ -9,6 +9,7 @@ internal sealed class BootstrapContext : IInsiderContext
         string insiderDirectory,
         IInsiderLogger logger,
         IInsiderRuntimeInfo runtime,
+        IInsiderIl2CppRuntime? il2Cpp,
         IInsiderMainThread mainThread,
         IInsiderHookService hooks)
     {
@@ -19,6 +20,7 @@ internal sealed class BootstrapContext : IInsiderContext
         DataDirectory = Path.Combine(insiderDirectory, "data");
         Logger = logger;
         Runtime = runtime;
+        Il2Cpp = il2Cpp;
         MainThread = mainThread;
         Hooks = hooks;
     }
@@ -36,6 +38,8 @@ internal sealed class BootstrapContext : IInsiderContext
     public IInsiderLogger Logger { get; }
 
     public IInsiderRuntimeInfo Runtime { get; }
+
+    public IInsiderIl2CppRuntime? Il2Cpp { get; }
 
     public IInsiderMainThread MainThread { get; }
 

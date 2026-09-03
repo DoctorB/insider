@@ -25,6 +25,12 @@ public interface IInsiderContext
 
     IInsiderRuntimeInfo Runtime { get; }
 
+    /// <summary>
+    /// Gets the IL2CPP runtime bridge when the current game uses IL2CPP;
+    /// otherwise <see langword="null"/>.
+    /// </summary>
+    IInsiderIl2CppRuntime? Il2Cpp { get; }
+
     IInsiderMainThread MainThread { get; }
 
     IInsiderHookService Hooks { get; }

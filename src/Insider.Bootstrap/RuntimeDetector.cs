@@ -55,5 +55,14 @@ internal static class RuntimeDetector
         public string Architecture { get; }
 
         public string RuntimeVersion { get; }
+
+        public bool SupportsManagedDetours => Backend == InsiderRuntimeBackend.UnityMono;
+
+        public bool SupportsIlHooks => Backend == InsiderRuntimeBackend.UnityMono;
+
+        public bool SupportsNativeDetours =>
+            Backend == InsiderRuntimeBackend.UnityMono || Backend == InsiderRuntimeBackend.UnityIl2Cpp;
+
+        public bool SupportsMainThread => Backend == InsiderRuntimeBackend.UnityMono;
     }
 }

@@ -26,7 +26,7 @@ internal static class GameDiagnoser
         else if (!inspection.IsCurrentTarget)
         {
             problems.Add(
-                $"The detected {inspection.Backend}/{inspection.Architecture} player is outside the current Windows x64 Unity Mono target.");
+                $"The detected {inspection.Backend}/{inspection.Architecture} player is outside the current Windows x64 Unity Mono or IL2CPP targets.");
         }
 
         if (installation.State == InsiderInstallationState.NotInstalled)

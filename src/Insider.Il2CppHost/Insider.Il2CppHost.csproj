@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Insider.Il2CppHost</AssemblyName>
+    <RootNamespace>Insider.Il2CppHost</RootNamespace>
+    <Description>Private CoreCLR host application loaded by Insider inside Unity IL2CPP games.</Description>
+    <IsPackable>false</IsPackable>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Insider.Bootstrap/Insider.Bootstrap.csproj" />
+  </ItemGroup>
+</Project>

@@ -25,6 +25,7 @@ internal static class UnityGameInspector
         var gameAssembly = Path.Combine(gameDirectory, "GameAssembly.dll");
         var managedDirectory = Path.Combine(dataDirectory, "Managed");
         var il2CppData = Path.Combine(dataDirectory, "il2cpp_data");
+        var il2CppMetadata = Path.Combine(il2CppData, "Metadata", "global-metadata.dat");
 
         var isUnity = Directory.Exists(dataDirectory) &&
             (File.Exists(unityPlayer) || Directory.Exists(managedDirectory) || Directory.Exists(il2CppData));
@@ -40,10 +41,17 @@ internal static class UnityGameInspector
         }
 
         var architecture = PortableExecutableInspector.GetArchitecture(fullPath);
-        var isCurrentTarget = isUnity && backend == UnityScriptingBackend.Mono && architecture == "x64";
+        var hasCompleteIl2CppLayout = File.Exists(gameAssembly) && File.Exists(il2CppMetadata);
+        var isCurrentTarget = isUnity && architecture == "x64" &&
+            (backend == UnityScriptingBackend.Mono ||
+                (backend == UnityScriptingBackend.Il2Cpp && hasCompleteIl2CppLayout));
         var note = isCurrentTarget
-            ? "Matches the experimental Windows x64 Unity/Mono target; validate this specific game before use."
-            : "Detection is diagnostic only. This configuration is outside the current implementation target.";
+            ? backend == UnityScriptingBackend.Il2Cpp
+                ? "Matches the essential Windows x64 Unity/IL2CPP target; native APIs and hooks are version-sensitive."
+                : "Matches the experimental Windows x64 Unity/Mono target; validate this specific game before use."
+            : backend == UnityScriptingBackend.Il2Cpp && !hasCompleteIl2CppLayout
+                ? "The IL2CPP layout is incomplete: GameAssembly.dll and global-metadata.dat are both required."
+                : "Detection is diagnostic only. This configuration is outside the current implementation target.";
 
         return new UnityGameInspection(fullPath, dataDirectory, isUnity, backend, architecture, isCurrentTarget, note);
     }
