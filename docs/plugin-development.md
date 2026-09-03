@@ -394,9 +394,12 @@ run in FIFO order, and work posted while a queue snapshot is executing waits for
 the next frame. `IsReady` reports whether Insider has observed the pump;
 `IsCurrent` reports whether the caller is currently on its thread.
 
-Pending callbacks are scoped to the plugin and become inert after `Unload()` or
-a failed `Load()`. `Unload()` itself does not run on Unity's main thread, and a
-callback posted during it is invalidated when unloading completes. Keep posted
-callbacks short and release Unity resources before unload. The complete
-contract, limitations, and Unity-reference guidance are in
+For short work that must run once per frame, use
+`context.MainThread.RegisterUpdate(callback)`. It returns an `IDisposable` for
+early removal; any remaining registrations are removed automatically after
+`Unload()` or a failed `Load()`. Pending `Post` callbacks become inert at the
+same boundary. `Unload()` itself does not run on Unity's main thread, and work
+posted during it is invalidated when unloading completes. Keep all callbacks
+short and release Unity resources before unload. The complete contract,
+examples, ordering, and Unity-reference guidance are in
 [main-thread.md](main-thread.md).

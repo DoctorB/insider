@@ -61,8 +61,8 @@ directories before `Load()` but provides no configuration format or serializer.
 The wrapper's logger prefixes messages with the plugin ID and its hooking
 service tracks that plugin's detours and IL hooks. Remaining hooks are removed
 in reverse creation order after `Unload()`, including cleanup after a failed
-`Load()`. Its main-thread wrapper also makes pending callbacks inert when the
-plugin context is disposed.
+`Load()`. Its main-thread wrapper also makes pending callbacks inert and disposes
+per-frame update registrations when the plugin context is disposed.
 
 ### Insider.Bootstrap
 
@@ -76,8 +76,9 @@ a compatibility adapter rather than a dependency on a full mod loader.
 For Unity Mono, the bootstrap observes `UnityEngine.CoreModule` and installs a
 loader-owned detour on `UnitySynchronizationContext.ExecuteTasks()` after the
 managed resolver is active. Unity's original pump runs first; Insider then
-drains one FIFO snapshot of plugin callbacks on that same thread. Plugin loading
-remains synchronous and deterministic on the bootstrap thread.
+drains one FIFO snapshot of posted plugin callbacks and invokes one ordered
+snapshot of per-frame registrations on that same thread. Plugin loading remains
+synchronous and deterministic on the bootstrap thread.
 
 ### Insider.Bootstrap.Native
 
@@ -158,6 +159,8 @@ backend.
 - Unity-facing plugin work must be posted through the scoped main-thread service;
   `Load()` and `Unload()` are not main-thread callbacks.
 - Work queued by an inactive or failed plugin must never execute later.
+- Per-frame callbacks belong to their registering plugin and must be removed
+  automatically when that plugin becomes inactive.
 - Every detour or IL hook created through a plugin context belongs to that
   plugin and must be removed even when plugin load or unload fails.
 - A failed removal must remain observable and retryable; it must not be marked
@@ -183,9 +186,10 @@ version conflicts. These deterministic contract tests run in CI.
 A separate local fixture builds a real Unity 2022.3 Windows x64 Mono player and
 proves that the native proxy can enter the existing Mono domain, start the
 managed loader, load one plugin, dispatch a callback through Unity's real
-synchronization pump, apply a managed method detour, and unload the plugin
-during process exit. The dispatched callback verifies the Unity synchronization
-context and a live Unity API from the main thread. The plugin also waits for Unity's real
+synchronization pump, run and remove a per-frame callback, apply a managed
+method detour, and unload the plugin during process exit. The dispatched
+callbacks verify the Unity synchronization context and a live Unity API from
+the main thread. The plugin also waits for Unity's real
 `Assembly-CSharp` instance and detours a method that the player invokes
 directly. It also rewrites a second game method through `ModifyIl`. The fixture
 removes the detour chain and IL hook while the player remains active and

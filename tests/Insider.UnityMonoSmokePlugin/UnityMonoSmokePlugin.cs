@@ -27,6 +27,8 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
     private IInsiderContext? _context;
     private Timer? _gameHookRemovalTimer;
     private int _loadThreadId;
+    private IDisposable? _updateHandle;
+    private int _updateCount;
 
     public void Load(IInsiderContext context)
     {
@@ -34,6 +36,7 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
         _insiderDirectory = context.InsiderDirectory;
         _loadThreadId = Thread.CurrentThread.ManagedThreadId;
         context.MainThread.Post(() => VerifyMainThread(context));
+        _updateHandle = context.MainThread.RegisterUpdate(() => VerifyUpdate(context));
         AppDomain.CurrentDomain.AssemblyLoad += OnAssemblyLoad;
         foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
         {
@@ -175,6 +178,8 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
     public void Unload()
     {
         AppDomain.CurrentDomain.AssemblyLoad -= OnAssemblyLoad;
+        _updateHandle?.Dispose();
+        _updateHandle = null;
         lock (_gameHookSync)
         {
             _gameHookRemovalTimer?.Dispose();
@@ -384,6 +389,28 @@ public sealed class UnityMonoSmokePlugin : IInsiderPlugin
             $"LoadThreadId={_loadThreadId}{Environment.NewLine}" +
             $"CallbackThreadId={Thread.CurrentThread.ManagedThreadId}");
         context.Logger.Info("INSIDER_UNITY_MONO_SMOKE_MAIN_THREAD_CALLBACK");
+    }
+
+    private void VerifyUpdate(IInsiderContext context)
+    {
+        _updateCount++;
+        if (_updateCount < 3)
+        {
+            return;
+        }
+
+        if (!context.MainThread.IsCurrent)
+        {
+            throw new InvalidOperationException("Unity update callback did not run on the main thread.");
+        }
+
+        _updateHandle?.Dispose();
+        _updateHandle = null;
+        File.WriteAllText(
+            Path.Combine(context.InsiderDirectory, "unity-smoke-update.txt"),
+            $"UpdateCount={_updateCount}{Environment.NewLine}" +
+            $"IsCurrent={context.MainThread.IsCurrent}");
+        context.Logger.Info("INSIDER_UNITY_MONO_SMOKE_UPDATE_CALLBACK");
     }
 
     private void TryInstallGameHook(Assembly assembly)

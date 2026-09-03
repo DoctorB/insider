@@ -30,6 +30,7 @@ internal static class Program
             ("scopes persistent directories by plugin id", ScopesPersistentDirectoriesByPluginId),
             ("contains plugin main-thread callback failures", ContainsPluginMainThreadCallbackFailures),
             ("cancels queued main-thread callbacks during plugin unload", CancelsQueuedMainThreadCallbacksDuringUnload),
+            ("removes plugin update callbacks during unload", RemovesPluginUpdateCallbacksDuringUnload),
             ("applies and removes a managed detour", AppliesAndRemovesManagedDetour),
             ("detours a method with ref and out parameters", DetoursMethodWithRefAndOutParameters),
             ("detours a method with in parameters", DetoursMethodWithInParameters),
@@ -232,6 +233,39 @@ internal static class Program
             (MainThreadCancellationPlugin.Dispatcher
                 ?? throw new InvalidOperationException("Plugin dispatcher was not captured."))
             .Post(() => { }));
+    }
+
+    private static void RemovesPluginUpdateCallbacksDuringUnload()
+    {
+        var mainThread = new ManualMainThread();
+        var context = new TestContext(mainThread: mainThread);
+        using var host = new PluginHost(context);
+
+        var result = host.Load(typeof(MainThreadUpdatePlugin));
+        Assert(result.Succeeded, result.Error ?? "Main-thread update plugin did not load.");
+        Assert(mainThread.UpdateCount == 2, "The plugin update callbacks were not registered.");
+
+        mainThread.Drain();
+        Assert(MainThreadUpdatePlugin.SuccessCount == 1, "A failed update stopped another plugin update callback.");
+        Assert(
+            context.CapturedLogger.Messages.Any(message =>
+                message.Contains("[dev.insider.tests.main-thread-update] Main-thread update callback failed.", StringComparison.Ordinal)),
+            "The failed update callback was not logged with its plugin id.");
+
+        host.UnloadAll();
+        Assert(mainThread.UpdateCount == 0, "Plugin update callbacks remained registered after unload.");
+        mainThread.Drain();
+        Assert(MainThreadUpdatePlugin.SuccessCount == 1, "A plugin update callback ran after unload.");
+
+        MainThreadUpdatePlugin.Handle?.Dispose();
+        AssertThrows<ObjectDisposedException>(() =>
+            (MainThreadUpdatePlugin.Dispatcher
+                ?? throw new InvalidOperationException("Plugin dispatcher was not captured."))
+            .RegisterUpdate(() => { }));
+
+        var failed = host.Load(typeof(FailingMainThreadUpdatePlugin));
+        Assert(!failed.Succeeded, "The failing update plugin unexpectedly loaded.");
+        Assert(mainThread.UpdateCount == 0, "A failed plugin left an update callback registered.");
     }
 
     private static void AppliesAndRemovesManagedDetour()
@@ -1198,6 +1232,28 @@ internal static class Program
         hooks.InvokePump();
         Assert(events.SequenceEqual(new[] { "first", "second", "next-frame" }), "A reentrant callback did not wait for the next pump.");
 
+        var updateCount = 0;
+        var lateUpdateCount = 0;
+        IDisposable? lateUpdate = null;
+        using var update = dispatcher.RegisterUpdate(() =>
+        {
+            updateCount++;
+            if (lateUpdate is null)
+            {
+                lateUpdate = dispatcher.RegisterUpdate(() => lateUpdateCount++);
+            }
+        });
+
+        hooks.InvokePump();
+        Assert(updateCount == 1 && lateUpdateCount == 0, "A newly registered update ran in the current pump.");
+        hooks.InvokePump();
+        Assert(updateCount == 2 && lateUpdateCount == 1, "Update callbacks did not run once per pump.");
+
+        update.Dispose();
+        lateUpdate?.Dispose();
+        hooks.InvokePump();
+        Assert(updateCount == 2 && lateUpdateCount == 1, "A disposed update callback ran again.");
+
         dispatcher.Post(() => throw new InvalidOperationException("Expected callback failure."));
         dispatcher.Post(() => events.Add("after-failure"));
         hooks.InvokePump();
@@ -1206,9 +1262,20 @@ internal static class Program
             logger.Messages.Contains("A Unity main-thread callback failed."),
             "The dispatcher did not log a failed callback.");
 
+        using var failingUpdate = dispatcher.RegisterUpdate(
+            () => throw new InvalidOperationException("Expected update failure."));
+        var successfulUpdateCount = 0;
+        using var successfulUpdate = dispatcher.RegisterUpdate(() => successfulUpdateCount++);
+        hooks.InvokePump();
+        Assert(successfulUpdateCount == 1, "A failed update callback stopped another update callback.");
+        Assert(
+            logger.Messages.Contains("A Unity update callback failed."),
+            "The dispatcher did not log a failed update callback.");
+
         dispatcher.Dispose();
         Assert(hooks.Hook.DisposeCount == 1, "The Unity pump hook was not removed exactly once.");
         AssertThrows<ObjectDisposedException>(() => dispatcher.Post(() => { }));
+        AssertThrows<ObjectDisposedException>(() => dispatcher.RegisterUpdate(() => { }));
     }
 
     private static PluginHost CreateHost(IInsiderHookService? hooks = null)
@@ -1249,6 +1316,9 @@ internal static class Program
         MainThreadCallbackPlugin.SuccessCount = 0;
         MainThreadCancellationPlugin.CallbackCount = 0;
         MainThreadCancellationPlugin.Dispatcher = null;
+        MainThreadUpdatePlugin.SuccessCount = 0;
+        MainThreadUpdatePlugin.Dispatcher = null;
+        MainThreadUpdatePlugin.Handle = null;
         LifecycleEvents.Clear();
         PluginGraphEvents.Clear();
         DirectoryPluginA.Context = null;
@@ -1847,26 +1917,52 @@ internal sealed class NoOpMainThread : IInsiderMainThread
     {
         _ = callback ?? throw new ArgumentNullException(nameof(callback));
     }
+
+    public IDisposable RegisterUpdate(Action callback)
+    {
+        _ = callback ?? throw new ArgumentNullException(nameof(callback));
+        return new EmptyRegistration();
+    }
+
+    private sealed class EmptyRegistration : IDisposable
+    {
+        public void Dispose()
+        {
+        }
+    }
 }
 
 internal sealed class ManualMainThread : IInsiderMainThread
 {
     private readonly Queue<Action> _callbacks = new Queue<Action>();
+    private readonly List<UpdateRegistration> _updates = new List<UpdateRegistration>();
     private bool _isCurrent;
 
     public bool IsReady => true;
 
     public bool IsCurrent => _isCurrent;
 
+    public int UpdateCount => _updates.Count;
+
     public void Post(Action callback)
     {
         _callbacks.Enqueue(callback ?? throw new ArgumentNullException(nameof(callback)));
+    }
+
+    public IDisposable RegisterUpdate(Action callback)
+    {
+        var registration = new UpdateRegistration(
+            this,
+            callback ?? throw new ArgumentNullException(nameof(callback)));
+        _updates.Add(registration);
+        return registration;
     }
 
     public void Drain()
     {
         var callbacks = _callbacks.ToArray();
         _callbacks.Clear();
+        var updates = _updates.ToArray();
         _isCurrent = true;
         try
         {
@@ -1874,10 +1970,52 @@ internal sealed class ManualMainThread : IInsiderMainThread
             {
                 callback();
             }
+
+            foreach (var update in updates)
+            {
+                update.Invoke();
+            }
         }
         finally
         {
             _isCurrent = false;
+        }
+    }
+
+    private void Remove(UpdateRegistration registration)
+    {
+        _updates.Remove(registration);
+    }
+
+    private sealed class UpdateRegistration : IDisposable
+    {
+        private readonly Action _callback;
+        private readonly ManualMainThread _owner;
+        private bool _disposed;
+
+        public UpdateRegistration(ManualMainThread owner, Action callback)
+        {
+            _owner = owner;
+            _callback = callback;
+        }
+
+        public void Invoke()
+        {
+            if (!_disposed)
+            {
+                _callback();
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _owner.Remove(this);
         }
     }
 }
@@ -2719,6 +2857,42 @@ public sealed class MainThreadCancellationPlugin : IInsiderPlugin
     {
         Dispatcher = context.MainThread;
         context.MainThread.Post(() => CallbackCount++);
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.main-thread-update", "Main Thread Update", "1.0.0")]
+public sealed class MainThreadUpdatePlugin : IInsiderPlugin
+{
+    public static IInsiderMainThread? Dispatcher { get; set; }
+
+    public static IDisposable? Handle { get; set; }
+
+    public static int SuccessCount { get; set; }
+
+    public void Load(IInsiderContext context)
+    {
+        Dispatcher = context.MainThread;
+        _ = context.MainThread.RegisterUpdate(
+            () => throw new InvalidOperationException("Expected plugin update failure."));
+        Handle = context.MainThread.RegisterUpdate(() => SuccessCount++);
+    }
+
+    public void Unload()
+    {
+    }
+}
+
+[InsiderPlugin("dev.insider.tests.main-thread-update-failure", "Main Thread Update Failure", "1.0.0")]
+public sealed class FailingMainThreadUpdatePlugin : IInsiderPlugin
+{
+    public void Load(IInsiderContext context)
+    {
+        _ = context.MainThread.RegisterUpdate(() => { });
+        throw new InvalidOperationException("Expected failure after registering an update callback.");
     }
 
     public void Unload()

@@ -39,12 +39,59 @@ main-thread pump. `IsCurrent` is `true` only on the thread used by that pump.
 Do not spin or poll `IsReady`; post the work and let Insider deliver it. The
 properties are useful for diagnostics and assertions, not for scheduling.
 
+## Per-frame updates
+
+Use `RegisterUpdate` for a small callback that must run once per Unity pump:
+
+```csharp
+using System;
+using Insider;
+using UnityEngine;
+
+private IDisposable? _update;
+
+public void Load(IInsiderContext context)
+{
+    _update = context.MainThread.RegisterUpdate(() =>
+    {
+        if (!context.MainThread.IsCurrent)
+        {
+            throw new InvalidOperationException("Expected the Unity main thread.");
+        }
+
+        Debug.Log($"Frame {Time.frameCount}");
+    });
+}
+
+public void Unload()
+{
+    _update?.Dispose();
+    _update = null;
+}
+```
+
+The returned handle removes only that registration. Disposal is thread-safe and
+idempotent. Explicit disposal is useful when the work finishes early; Insider
+also disposes every remaining registration automatically after `Unload()` or a
+failed `Load()`.
+
+Updates run in registration order after the current `Post` queue snapshot. A
+registration created while the pump is running starts on the next pump. A
+callback can dispose itself or another registration; a disposed registration
+does not run again. One update failure is logged with the plugin ID, does not
+stop other updates, and does not remove the failing registration.
+
+`RegisterUpdate` is thread-safe, returns immediately, and accepts callbacks
+before the Unity pump is ready. Keep per-frame work especially short: it runs
+inside Unity's player loop, so blocking it blocks the frame.
+
 ## Plugin ownership
 
 Every plugin receives a scoped main-thread service. Pending callbacks are
-invalidated after `Unload()` and after a failed `Load()`, so code from an
-inactive plugin cannot run later. Posting through a retained scoped service
-after that point throws `ObjectDisposedException`.
+invalidated and update registrations are disposed after `Unload()` and after a
+failed `Load()`, so code from an inactive plugin cannot run later. Posting or
+registering through a retained scoped service after that point throws
+`ObjectDisposedException`.
 
 `Unload()` itself is not a main-thread callback. Work posted from `Unload()` is
 invalidated when the callback returns and should not be used for Unity cleanup.
@@ -61,17 +108,16 @@ plugins that deliberately avoid a compile-time Unity dependency.
 The current Unity Mono implementation observes the effective
 `UnityEngine.CoreModule` assembly and detours the internal
 `UnitySynchronizationContext.ExecuteTasks()` pump. It calls Unity's original
-method first and then drains one snapshot of the Insider queue. If the expected
-pump is unavailable or cannot be hooked, Insider logs the failure and
-`IsReady` remains `false`.
+method first, drains one snapshot of the Insider queue, and then invokes one
+snapshot of active update registrations. If the expected pump is unavailable or
+cannot be hooked, Insider logs the failure and `IsReady` remains `false`.
 
 ## Current limits
 
 The initial API deliberately provides no synchronous invoke, result value,
-`Task`, cancellation token, priority, delayed scheduling, repeating callback,
-or `Update` event. A plugin that needs per-frame behavior should create its own
-Unity component from one posted callback. These features can be added later only
-when a concrete use case justifies the extra contract.
+`Task`, cancellation token, priority, delayed scheduling, fixed-time callback,
+or general player-loop event model. These features can be added later only when
+a concrete use case justifies the extra contract.
 
 This dispatcher supports the experimental Windows x64 Unity Mono backend only.
 It does not provide an IL2CPP runtime integration layer.

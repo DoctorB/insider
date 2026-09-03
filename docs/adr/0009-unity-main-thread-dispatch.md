@@ -48,3 +48,6 @@ not stop later work.
 - Compatibility depends on the internal Unity synchronization pump and must be
   verified against real players; failure leaves the dispatcher unready and is
   logged without preventing plugin discovery.
+
+Per-frame registrations extend this dispatcher in
+[ADR 0012](0012-unity-per-frame-callbacks.md).

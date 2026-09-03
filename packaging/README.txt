@@ -29,6 +29,9 @@ Managed detours and IL hooks use the loader-owned MonoMod.RuntimeDetour backend
 and are removed automatically when their owning plugin unloads.
 Plugins can schedule Unity-facing work through context.MainThread; pending work
 is invalidated automatically when its owning plugin unloads.
+Per-frame work can use context.MainThread.RegisterUpdate; its IDisposable handle
+removes the callback early, and Insider removes it automatically on plugin
+unload.
 Plugin configuration and data directories are preserved during uninstall.
 
 License terms are included in LICENSE and THIRD_PARTY_NOTICES.md.
