@@ -23,6 +23,10 @@ test evidence. A Unity version alone is not a sufficient compatibility claim.
 layout to report likely Mono or IL2CPP use. Detection is diagnostic and does not
 replace an end-to-end launch test.
 
+`Insider.Cli diagnose` includes the same detection in a larger read-only report
+covering installation and plugin health. It does not launch the player, so a
+clean report proves structural consistency rather than runtime compatibility.
+
 ## Native bootstrap assumptions
 
 The experimental Windows x64 bootstrap relies on the game loading a local

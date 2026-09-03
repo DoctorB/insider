@@ -78,6 +78,7 @@ Actions run, extract it outside the game directory, and run:
 dotnet insider.dll inspect "C:\Games\Example\Example.exe"
 dotnet insider.dll install "C:\Games\Example\Example.exe"
 dotnet insider.dll status "C:\Games\Example\Example.exe"
+dotnet insider.dll diagnose "C:\Games\Example\Example.exe"
 ```
 
 To remove Insider and restore a pre-existing root `version.dll`:
@@ -97,6 +98,13 @@ dotnet insider.dll plugins enable "C:\Games\Example\Example.exe" com.example.my-
 
 These commands update `Insider/config/disabled-plugins.txt`; changes take effect
 the next time the game starts.
+
+`diagnose` is the single read-only health check for an installed game. It reports
+the detected Unity backend and architecture, installation integrity, discovered
+and disabled plugins, required and optional dependencies, version mismatches,
+duplicate IDs, and dependency cycles. It does not start the game or call plugin
+`Load()` methods. See the [CLI diagnostics guide](docs/diagnostics.md) for output
+and exit-code details.
 
 Installation is deliberately limited to detected Windows x64 Unity/Mono games.
 It records hashes in `Insider/install.json`, never removes plugins or logs, and
@@ -220,6 +228,8 @@ file is read once at startup, has no hot reload, and is preserved by uninstall.
 The `plugins disable`, `plugins enable`, and `plugins disabled` CLI commands
 manage the same file, preserve comments and unrelated entries, and are safe to
 repeat.
+Run `insider diagnose <game.exe>` after changing the installed plugin set to see
+the resulting states and dependency problems without launching Unity.
 See the [plugin development guide](docs/plugin-development.md#disabling-plugins)
 for the complete behavior.
 

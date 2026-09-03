@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Insider.Bootstrap;
+using Insider.Cli;
 using Insider.Hooking;
 using Insider.Installation;
 using Insider.Loader;
@@ -80,6 +81,7 @@ internal static class Program
             ("installs and uninstalls without losing an existing proxy", InstallsAndRestoresExistingProxy),
             ("refuses to remove modified installation files", RefusesToRemoveModifiedFiles),
             ("manages disabled plugins through the CLI", ManagesDisabledPluginsThroughCli),
+            ("diagnoses game plugins without activation", DiagnosesGamePluginsWithoutActivation),
             ("dispatches Unity main-thread callbacks", DispatchesUnityMainThreadCallbacks),
         };
 
@@ -1204,6 +1206,72 @@ internal static class Program
         using var notInstalled = InstallationFixture.Create(withExistingProxy: false);
         AssertThrows<InsiderInstallationException>(() =>
             CliProgram.Run(new[] { "plugins", "disabled", notInstalled.GameExecutable }));
+    }
+
+    private static void DiagnosesGamePluginsWithoutActivation()
+    {
+        using var fixture = InstallationFixture.Create(withExistingProxy: false);
+        new InsiderInstaller().Install(fixture.GameExecutable, fixture.BundleDirectory);
+
+        var pluginDirectory = Path.Combine(fixture.GameDirectory, "Insider", "plugins");
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "fixtures", "diagnostics", "Insider.DiagnosticFixture.dll"),
+            Path.Combine(pluginDirectory, "Insider.DiagnosticFixture.dll"));
+        File.WriteAllLines(
+            Path.Combine(
+                fixture.GameDirectory,
+                DisabledPluginManager.RelativePath.Replace('/', Path.DirectorySeparatorChar)),
+            new[]
+            {
+                "dev.insider.tests.diagnostic-disabled",
+                "dev.insider.tests.stale-disabled-id",
+            });
+
+        var report = GameDiagnoser.Diagnose(fixture.GameExecutable);
+        Assert(report.Plugins.Count == 11, "The diagnostic catalog did not find every fixture plugin.");
+        Assert(
+            report.Plugins.Single(plugin => plugin.Id == "dev.insider.tests.diagnostic-foundation").State ==
+                PluginDiagnosticState.Ready,
+            "A valid foundation plugin was not ready.");
+        var ready = report.Plugins.Single(plugin => plugin.Id == "dev.insider.tests.diagnostic-ready");
+        Assert(ready.State == PluginDiagnosticState.Ready, "A plugin with a satisfied dependency was not ready.");
+        Assert(
+            ready.Dependencies.Single().Status.Contains("ready (1.2.0)", StringComparison.Ordinal),
+            "A satisfied minimum version was not rendered readably.");
+        var optional = report.Plugins.Single(plugin => plugin.Id == "dev.insider.tests.diagnostic-optional");
+        Assert(optional.State == PluginDiagnosticState.Ready, "A missing optional dependency blocked a plugin.");
+        Assert(optional.Dependencies.Single().Status.Contains("allowed", StringComparison.Ordinal),
+            "A missing optional dependency was not explained.");
+        Assert(
+            report.Plugins.Single(plugin => plugin.Id == "dev.insider.tests.diagnostic-disabled").State ==
+                PluginDiagnosticState.Disabled,
+            "The disabled plugin was not identified.");
+        Assert(
+            report.Plugins.Single(plugin => plugin.Id == "dev.insider.tests.diagnostic-broken").Issues
+                .Any(issue => issue.Contains("missing", StringComparison.Ordinal)),
+            "A missing required dependency was not diagnosed.");
+        Assert(
+            report.Plugins.Single(plugin => plugin.Id == "dev.insider.tests.diagnostic-needs-disabled").Issues
+                .Any(issue => issue.Contains("disabled", StringComparison.Ordinal)),
+            "A disabled required dependency was not diagnosed.");
+        Assert(
+            report.Plugins.Single(plugin => plugin.Id == "dev.insider.tests.diagnostic-needs-newer").Issues
+                .Any(issue => issue.Contains("found 1.2.0", StringComparison.Ordinal)),
+            "A minimum-version mismatch was not diagnosed.");
+        Assert(
+            report.Plugins.Count(plugin => plugin.Id == "dev.insider.tests.diagnostic-duplicate" &&
+                plugin.State == PluginDiagnosticState.Problem) == 2,
+            "Duplicate plugin IDs were not diagnosed.");
+        Assert(
+            report.Plugins.Count(plugin => plugin.Issues.Any(issue => issue.Contains("cycle", StringComparison.Ordinal))) == 2,
+            "The required dependency cycle was not diagnosed.");
+        Assert(
+            report.Notes.Single().Contains("stale-disabled-id", StringComparison.Ordinal),
+            "A stale disabled ID was not reported as a note.");
+        Assert(report.HasProblems, "The broken diagnostic fixture unexpectedly produced a clean report.");
+        Assert(
+            CliProgram.Run(new[] { "diagnose", fixture.GameExecutable }) == 1,
+            "The diagnose command did not return a failing exit code for detected problems.");
     }
 
     private static void DispatchesUnityMainThreadCallbacks()

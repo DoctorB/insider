@@ -14,15 +14,19 @@
     <ProjectReference Include="../../src/Insider.Hooking/Insider.Hooking.csproj" />
     <ProjectReference Include="../../src/Insider.Installation/Insider.Installation.csproj" />
     <ProjectReference Include="../../src/Insider.Loader/Insider.Loader.csproj" />
+    <ProjectReference Include="../Insider.DiagnosticFixture/Insider.DiagnosticFixture.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../Insider.PluginFixture/Insider.PluginFixture.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../Insider.DependencyFixture.V2/Insider.DependencyFixture.V2.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <Target Name="CopyManagedTestFixtures" AfterTargets="Build">
-    <MakeDir Directories="$(OutDir)fixtures/bootstrap;$(OutDir)fixtures/dependencies/v1;$(OutDir)fixtures/dependencies/v2" />
+    <MakeDir Directories="$(OutDir)fixtures/bootstrap;$(OutDir)fixtures/diagnostics;$(OutDir)fixtures/dependencies/v1;$(OutDir)fixtures/dependencies/v2" />
     <Copy
       SourceFiles="$(MSBuildProjectDirectory)/../Insider.PluginFixture/bin/$(Configuration)/netstandard2.0/Insider.PluginFixture.dll"
       DestinationFolder="$(OutDir)fixtures/bootstrap" />
+    <Copy
+      SourceFiles="$(MSBuildProjectDirectory)/../Insider.DiagnosticFixture/bin/$(Configuration)/netstandard2.0/Insider.DiagnosticFixture.dll"
+      DestinationFolder="$(OutDir)fixtures/diagnostics" />
     <Copy
       SourceFiles="$(MSBuildProjectDirectory)/../Insider.DependencyFixture.V1/bin/$(Configuration)/netstandard2.0/Insider.DependencyFixture.dll"
       DestinationFolder="$(OutDir)fixtures/dependencies/v1" />
