@@ -1,27 +1,31 @@
 # Runtime hooking guide
 
-This document is the practical reference for Insider's managed hooking API. It
-covers managed detours and IL hooks exposed by `IInsiderHookService`, with
-examples that can be adapted to a plugin.
+This document is the practical reference for Insider's hooking API. It covers
+managed detours, IL hooks, and the small native-detour operation exposed by
+`IInsiderHookService`.
 
-The backend is currently experimental and targets Windows x64 games using the
-Unity Mono scripting backend. IL2CPP is not supported.
+Managed detours and IL hooks are currently experimental and target Windows x64
+games using the Unity Mono scripting backend. The essential Windows x64 IL2CPP
+backend exposes native detours only; it does not turn compiled game code into
+managed `MethodBase` or `ILContext` targets.
 
 Types such as `GameRules`, `Enemy`, `CombatStats`, and `Actor` in the snippets
 are illustrative game types; replace them with the exact types from the target
 assembly.
 
-The service has two operations:
+The service has three operations:
 
 ```csharp
 IDisposable detour = context.Hooks.Detour(target, replacement);
 IDisposable ilHook = context.Hooks.ModifyIl(target, manipulator);
+IDisposable nativeDetour = context.Hooks.DetourNative(address, nativeReplacement);
 ```
 
-Both are active when the call returns, both produce independently removable
-handles, and both are owned by the plugin context. Use `Detour` when a delegate
+All are active when the call returns, produce independently removable handles,
+and are owned by the plugin context. Use `Detour` when a delegate
 can replace or wrap the whole method. Use `ModifyIl` when a precise change must
-be made inside the original method body.
+be made inside the original method body. Use `DetourNative` only after resolving
+and verifying an exact native ABI.
 
 ## Managed detour contract
 
@@ -510,13 +514,32 @@ do not redistribute `MonoMod.*`, `Mono.Cecil*`, or
 `Insider.Abstractions.dll` with a plugin. The loader owns those assemblies and
 all plugins must use the process-wide copies.
 
+## Native detours
+
+`DetourNative(IntPtr target, Delegate replacement)` applies the same ownership
+and cleanup model to a native function address. The target must be non-zero and
+the replacement must be one unmanaged-compatible, single-cast delegate.
+Insider can validate those structural rules, but it cannot infer or validate the
+native function signature.
+
+On IL2CPP, obtain addresses from `context.Il2Cpp.ResolveExport(...)` or
+`ResolveMethod(...)`. Addresses are valid only in the current process. The
+replacement must match the target's calling convention, return value, argument
+widths, pointer levels, instance/static shape, and hidden IL2CPP arguments. A
+mismatch can corrupt memory or terminate the game.
+
+The full resolution and native replacement example is in the
+[essential IL2CPP guide](il2cpp.md). Native detours are also available as a
+low-level operation on Mono, but managed game methods should normally use the
+safer reflected `Detour` contract.
+
 ## Loader ownership and failure cleanup
 
-Every `context.Hooks.Detour` and `context.Hooks.ModifyIl` call is scoped to the
-plugin that made it:
+Every `context.Hooks.Detour`, `ModifyIl`, and `DetourNative` call is scoped to
+the plugin that made it:
 
 - A successful plugin may dispose a handle whenever it no longer needs the hook.
-- Remaining detours and IL hooks stay active during the plugin's `Unload()`
+- Remaining managed detours, native detours, and IL hooks stay active during the plugin's `Unload()`
   callback and are removed immediately afterward.
 - If `Load()` throws after creating hooks, Insider removes those hooks.
 - Removing one plugin's hooks does not remove another plugin's nodes from the
@@ -536,7 +559,8 @@ Contract validation happens before runtime patching:
 
 - Invalid or mismatched signatures throw `ArgumentException`.
 - Unsupported targets throw `NotSupportedException`.
-- A backend failure while applying or removing a valid detour or IL hook throws
+- A backend failure while applying or removing a valid managed detour, native
+  detour, or IL hook throws
   `InsiderHookException` and retains the original exception in
   `InnerException`.
 
@@ -637,6 +661,9 @@ The current managed detour backend supports:
   cleanup.
 - Stable `InsiderHookException` wrapping runtime apply and removal failures.
 
+The native backend supports detours from verified process-local addresses and
+single-cast unmanaged-compatible delegates. It does not validate the target ABI.
+
 The IL backend supports:
 
 - Managed methods and instance constructors with readable IL bodies.
@@ -655,8 +682,10 @@ It deliberately rejects or does not expose:
 - Variable-argument methods.
 - Static constructors; value-type constructors remain unsupported by `Detour`
   but may be rewritten through `ModifyIl` when they expose a body.
-- HookGen, ordering controls, and native detours.
-- IL2CPP targets.
+- HookGen and ordering controls.
+- Managed detours or IL hooks against IL2CPP game methods.
+- Automatic IL2CPP proxies, overload disambiguation beyond name and parameter
+  count, or ABI validation.
 
 See [compatibility.md](compatibility.md) for the evidence behind current support
 claims and [testing.md](testing.md) for the exact automated and Unity fixtures.

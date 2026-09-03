@@ -19,7 +19,8 @@ Unity executable
 ### Insider.Abstractions
 
 The public plugin contract. It contains metadata, lifecycle, logging, runtime
-information, and the small managed-hook and main-thread service interfaces. It
+information, the small hook and main-thread service interfaces, and the
+optional IL2CPP native runtime bridge. It
 has no dependency on Unity, a mod loader, or a native bootstrap. Managed detours
 remain backend-neutral; the advanced `ModifyIl` operation deliberately exposes
 MonoMod's `ILContext` because replacing that complete IL model with an
@@ -65,7 +66,8 @@ directories derived safely from the case-insensitive plugin ID. The plugin owns
 the files below its configuration and data directories; the loader creates the
 directories before `Load()` but provides no configuration format or serializer.
 The wrapper's logger prefixes messages with the plugin ID and its hooking
-service tracks that plugin's detours and IL hooks. Remaining hooks are removed
+service tracks that plugin's managed detours, native detours, and IL hooks.
+Remaining hooks are removed
 in reverse creation order after `Unload()`, including cleanup after a failed
 `Load()`. Its main-thread wrapper also makes pending callbacks inert and disposes
 per-frame update registrations when the plugin context is disposed.
@@ -77,8 +79,10 @@ creates the plugin, configuration, data, and log roots, creates diagnostics,
 rotates the managed current log to one previous-session file, detects the
 scripting backend, and starts the chainloader.
 The native loader invokes `Insider.Native.Entrypoint.Start()` through Mono's
-embedding API. The exported `Doorstop.Entrypoint.Start()` method is retained as
-a compatibility adapter rather than a dependency on a full mod loader.
+embedding API. On IL2CPP it starts the `Insider.Il2CppHost` managed application
+through the packaged private CoreCLR, which enters the same bootstrap session.
+The exported `Doorstop.Entrypoint.Start()` method is retained as a compatibility
+adapter rather than a dependency on a full mod loader.
 
 For Unity Mono, the bootstrap observes `UnityEngine.CoreModule` and installs a
 loader-owned detour on `UnitySynchronizationContext.ExecuteTasks()` after the
@@ -87,21 +91,31 @@ drains one FIFO snapshot of posted plugin callbacks and invokes one ordered
 snapshot of per-frame registrations on that same thread. Plugin loading remains
 synchronous and deterministic on the bootstrap thread.
 
+For Unity IL2CPP, the bootstrap waits for the native IL2CPP domain, creates the
+small metadata/export bridge, and reports only native-detour capability. It
+does not install the Mono synchronization pump or expose managed game methods.
+`context.MainThread` fails explicitly until a real IL2CPP player-loop
+integration has its own implementation and evidence.
+
 ### Insider.Bootstrap.Native
 
 The Insider-owned Windows x64 process entry layer. It is installed as a local
 `version.dll`, forwards the Windows version-information API to the operating
-system, waits for Unity's existing Mono runtime, attaches its bootstrap thread,
-and invokes the managed entry point. Before its first message it rotates the
-native current log to one previous-session file. It does not ship or initialize
-a second Mono runtime.
+system, and selects the first observed Unity backend. For Mono it attaches its
+bootstrap thread to the existing domain. For IL2CPP it starts the self-contained
+`Insider.Il2CppHost` application through the private `hostfxr` runtime installed
+under `Insider/runtime/win-x64`. Before its first message it rotates the native
+current log to one previous-session file. It does not ship or initialize a
+second Mono runtime and does not depend on BepInEx.
 
 ### Insider.Installation and Insider.Cli
 
 Out-of-process tooling for inspecting, installing, verifying, and removing
 Insider. Installations are described by a manifest containing SHA-256 hashes.
 An existing root `version.dll` is preserved and restored; unknown core files are
-never overwritten. The CLI also lists, disables, and enables plugins by stable
+never overwritten. The private IL2CPP runtime is installed recursively, hashed
+in the same manifest, and removed only when its loader-owned files are intact or
+force removal is requested. The CLI also lists, disables, and enables plugins by stable
 ID through the existing `Insider/config/disabled-plugins.txt` format. Mutations
 preserve user comments and unrelated lines, use a same-directory atomic replace,
 and never attempt to change the state of a running game. Uninstall preserves
@@ -139,7 +153,11 @@ The backend wraps application and removal failures in `InsiderHookException`;
 successful disposal is idempotent, while failed disposal keeps the handle
 tracked and retryable. IL hooks additionally require a readable method body and
 place stack, branch, local, and exception-region correctness on the manipulator.
-Static constructors, HookGen, hook ordering, and native detours are not exposed.
+`DetourNative` creates a native detour from a non-zero process address and an
+unmanaged-compatible delegate. It follows the same immediate application,
+reverse cleanup, idempotent disposal, retry, and stable exception rules, but
+cannot validate a game-specific ABI. Static constructors, HookGen, and hook
+ordering are not exposed.
 Value-type constructors remain unsupported by `Detour` but are valid
 `ModifyIl` targets when reflection exposes their body.
 
@@ -157,6 +175,8 @@ backend.
 - Plugin APIs must not expose the native bootstrap or another loader implementation.
 - Compatibility is declared per scripting backend, operating system, and process
   architecture.
+- Runtime capability flags are authoritative; a plugin must not infer that a
+  managed hook or main-thread API exists on IL2CPP.
 - Native crashes are tested in child processes, never inside the unit-test host.
 - Early bootstrap code must assume Unity APIs are not initialized.
 - A plugin failure must be logged with plugin identity and stage.
@@ -171,8 +191,9 @@ backend.
   treating an intentional skip as a load failure.
 - Plugins must use loader-assigned paths and keep persistent writes below their
   owned configuration or data directory.
-- Unity-facing plugin work must be posted through the scoped main-thread service;
-  `Load()` and `Unload()` are not main-thread callbacks.
+- Unity-facing plugin work must be posted through the scoped main-thread service
+  only on a backend that reports main-thread support; `Load()` and `Unload()` are
+  never main-thread callbacks.
 - Work queued by an inactive or failed plugin must never execute later.
 - Per-frame callbacks belong to their registering plugin and must be removed
   automatically when that plugin becomes inactive.
@@ -197,6 +218,15 @@ The native fixture provides an Insider-owned module with the same seven Mono
 embedding exports consumed by the bootstrap. Managed fixtures separately cover
 real assembly discovery, exact dependency resolution, missing dependencies, and
 version conflicts. These deterministic contract tests run in CI.
+
+The IL2CPP fixture first validates backend selection against fake
+`GameAssembly.dll` and hostfxr modules. The packaged phase then installs the
+real self-contained runtime into a synthetic game layout and executes the real
+CoreCLR bootstrap through a fixture plugin. It resolves fake IL2CPP metadata,
+applies a native detour, observes `7` change to `42`, removes the detour, and
+observes the restored `7`. This proves the packaged host and hook boundaries,
+but not compatibility with a real Unity IL2CPP player or production game method
+signatures.
 
 A separate local fixture builds a real Unity 2022.3 Windows x64 Mono player and
 proves that the native proxy can enter the existing Mono domain, start the

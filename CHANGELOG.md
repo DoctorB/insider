@@ -9,6 +9,16 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Essential Windows x64 Unity IL2CPP backend using an Insider-owned
+  self-contained CoreCLR host, with complete-layout CLI detection and one
+  universal Mono/IL2CPP package.
+- `context.Il2Cpp` export and metadata resolution plus loader-owned
+  `context.Hooks.DetourNative` handles, backend capability flags, explicit
+  unsupported main-thread behavior, and a complete native usage guide.
+- Fake-host and real packaged-CoreCLR IL2CPP bootstrap fixtures covering
+  runtime selection, installation, managed startup, domain readiness, plugin
+  scanning, metadata resolution, native detour application/restoration, and CI
+  package integrity.
 - Optional `MinimumInsiderVersion` plugin metadata with strict version
   validation, pre-activation rejection, CLI diagnostics, and one shared loader
   and abstractions version source.

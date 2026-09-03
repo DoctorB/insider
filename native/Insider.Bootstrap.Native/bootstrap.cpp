@@ -12,6 +12,7 @@ namespace
     INIT_ONCE g_system_version_once = INIT_ONCE_STATIC_INIT;
     INIT_ONCE g_native_log_once = INIT_ONCE_STATIC_INIT;
     HMODULE g_system_version = nullptr;
+    HMODULE g_hostfxr = nullptr;
 
     enum class BootstrapResult
     {
@@ -180,7 +181,7 @@ namespace
         return nullptr;
     }
 
-    BootstrapResult TryStartManagedBootstrap()
+    BootstrapResult TryStartMonoBootstrap()
     {
         const auto mono_module = FindMonoModule();
         if (mono_module == nullptr)
@@ -265,6 +266,85 @@ namespace
         return BootstrapResult::Started;
     }
 
+    BootstrapResult TryStartIl2CppBootstrap()
+    {
+        if (GetModuleHandleW(L"GameAssembly.dll") == nullptr)
+        {
+            return BootstrapResult::NotReady;
+        }
+
+        const auto game_directory = GetDirectoryName(GetModulePath(g_module));
+        const auto runtime_directory = Combine(game_directory, L"Insider\\runtime\\win-x64");
+        const auto hostfxr_path = Combine(runtime_directory, L"hostfxr.dll");
+        const auto host_assembly_path = Combine(runtime_directory, L"Insider.Il2CppHost.dll");
+
+        g_hostfxr = LoadLibraryW(hostfxr_path.c_str());
+        if (g_hostfxr == nullptr)
+        {
+            WriteLog(L"Could not load the private CoreCLR host: " + hostfxr_path);
+            return BootstrapResult::Failed;
+        }
+
+        using HostFxrInitialize = int(__cdecl*)(int, const wchar_t**, void*, void**);
+        using HostFxrRunApp = int(__cdecl*)(void*);
+        using HostFxrClose = int(__cdecl*)(void*);
+
+        HostFxrInitialize initialize = nullptr;
+        HostFxrRunApp run_app = nullptr;
+        HostFxrClose close = nullptr;
+        if (!ResolveExport(g_hostfxr, "hostfxr_initialize_for_dotnet_command_line", initialize) ||
+            !ResolveExport(g_hostfxr, "hostfxr_run_app", run_app) ||
+            !ResolveExport(g_hostfxr, "hostfxr_close", close))
+        {
+            WriteLog(L"The private CoreCLR host does not expose the required hostfxr API.");
+            return BootstrapResult::Failed;
+        }
+
+        void* context = nullptr;
+        const wchar_t* arguments[] = { host_assembly_path.c_str() };
+        const auto initialize_result = initialize(1, arguments, nullptr, &context);
+        if (initialize_result != 0 || context == nullptr)
+        {
+            WriteLog(
+                L"Could not initialize the private CoreCLR runtime (hostfxr status " +
+                std::to_wstring(initialize_result) + L").");
+            if (context != nullptr)
+            {
+                close(context);
+            }
+
+            return BootstrapResult::Failed;
+        }
+
+        const auto run_result = run_app(context);
+        close(context);
+        if (run_result != 0)
+        {
+            WriteLog(
+                L"The Insider IL2CPP host returned status " +
+                std::to_wstring(run_result) + L".");
+            return BootstrapResult::Failed;
+        }
+
+        WriteLog(L"Managed IL2CPP bootstrap started successfully through the private CoreCLR runtime.");
+        return BootstrapResult::Started;
+    }
+
+    BootstrapResult TryStartRuntimeBootstrap()
+    {
+        if (GetModuleHandleW(L"GameAssembly.dll") != nullptr)
+        {
+            return TryStartIl2CppBootstrap();
+        }
+
+        if (FindMonoModule() != nullptr)
+        {
+            return TryStartMonoBootstrap();
+        }
+
+        return BootstrapResult::NotReady;
+    }
+
     DWORD WINAPI BootstrapThread(void*)
     {
         const auto process_path = GetModulePath(nullptr);
@@ -273,12 +353,12 @@ namespace
             SetEnvironmentVariableW(L"INSIDER_PROCESS_PATH", process_path.c_str());
         }
 
-        WriteLog(L"Waiting for the Unity Mono runtime.");
+        WriteLog(L"Waiting for a Unity Mono or IL2CPP runtime.");
         constexpr DWORD retry_delay_ms = 50;
         constexpr DWORD timeout_ms = 60'000;
         for (DWORD elapsed = 0; elapsed < timeout_ms; elapsed += retry_delay_ms)
         {
-            const auto result = TryStartManagedBootstrap();
+            const auto result = TryStartRuntimeBootstrap();
             if (result != BootstrapResult::NotReady)
             {
                 return result == BootstrapResult::Started ? 0 : 1;
@@ -287,7 +367,7 @@ namespace
             Sleep(retry_delay_ms);
         }
 
-        WriteLog(L"Timed out waiting for the Unity Mono runtime.");
+        WriteLog(L"Timed out waiting for a Unity Mono or IL2CPP runtime.");
         return 1;
     }
 

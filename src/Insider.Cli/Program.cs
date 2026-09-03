@@ -92,7 +92,7 @@ internal static class Program
         if (!inspection.IsCurrentTarget)
         {
             throw new InsiderInstallationException(
-                "Installation is currently limited to Windows x64 Unity games using the Mono scripting backend.");
+                "Installation is limited to complete Windows x64 Unity Mono or IL2CPP game layouts.");
         }
 
         var status = new InsiderInstaller().Install(inspection.ExecutablePath, bundleDirectory);
@@ -218,7 +218,7 @@ internal static class Program
         Console.WriteLine($"Backend:      {result.Backend}");
         Console.WriteLine($"Architecture: {result.Architecture}");
         Console.WriteLine($"Data path:    {result.DataDirectory}");
-        Console.WriteLine($"MVP support:  {result.IsCurrentTarget}");
+        Console.WriteLine($"Current target: {result.IsCurrentTarget}");
 
         if (!string.IsNullOrWhiteSpace(result.Note))
         {

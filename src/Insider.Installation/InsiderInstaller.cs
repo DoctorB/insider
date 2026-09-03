@@ -61,7 +61,15 @@ public sealed class InsiderInstaller
                 $"A previous version.dll backup already exists at '{backupPath}'. Move or restore it before installing.");
         }
 
-        var files = RequiredFiles.Select(file => PrepareFile(bundlePath, gameDirectory, file)).ToArray();
+        var files = RequiredFiles
+            .Select(file => PrepareFile(bundlePath, gameDirectory, file))
+            .Concat(PrepareDirectory(
+                bundlePath,
+                gameDirectory,
+                "runtime/win-x64",
+                "Insider/runtime/win-x64",
+                "il2cpp-runtime"))
+            .ToArray();
         foreach (var file in files.Where(file => !IsRootProxy(file.TargetRelativePath)))
         {
             if (File.Exists(file.TargetPath))
@@ -201,6 +209,8 @@ public sealed class InsiderInstaller
         File.Delete(manifestPath);
         TryDeleteEmptyDirectory(Path.GetDirectoryName(backupPath)!);
         TryDeleteEmptyDirectory(ResolveWithin(gameDirectory, "Insider/core"));
+        TryDeleteEmptyDirectory(ResolveWithin(gameDirectory, "Insider/runtime/win-x64"));
+        TryDeleteEmptyDirectory(ResolveWithin(gameDirectory, "Insider/runtime"));
 
         return new InsiderInstallationStatus(
             InsiderInstallationState.NotInstalled,
@@ -223,6 +233,42 @@ public sealed class InsiderInstaller
             file.TargetRelativePath,
             file.Role,
             ComputeSha256(sourcePath));
+    }
+
+    private static IEnumerable<PreparedFile> PrepareDirectory(
+        string bundleDirectory,
+        string gameDirectory,
+        string sourceRelativePath,
+        string targetRelativePath,
+        string role)
+    {
+        var sourceDirectory = ResolveWithin(bundleDirectory, sourceRelativePath);
+        if (!Directory.Exists(sourceDirectory))
+        {
+            throw new InsiderInstallationException(
+                $"The bundle is incomplete: '{sourceRelativePath}' is missing.");
+        }
+
+        var sourceFiles = Directory.GetFiles(sourceDirectory, "*", SearchOption.AllDirectories)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (sourceFiles.Length == 0)
+        {
+            throw new InsiderInstallationException(
+                $"The bundle is incomplete: '{sourceRelativePath}' is empty.");
+        }
+
+        foreach (var sourcePath in sourceFiles)
+        {
+            var relativePath = Path.GetRelativePath(sourceDirectory, sourcePath);
+            var targetPath = NormalizeRelativePath(Path.Combine(targetRelativePath, relativePath));
+            yield return new PreparedFile(
+                sourcePath,
+                ResolveWithin(gameDirectory, targetPath),
+                targetPath,
+                role,
+                ComputeSha256(sourcePath));
+        }
     }
 
     private static List<string> ValidateManifest(string gameDirectory, InstallationManifest manifest)

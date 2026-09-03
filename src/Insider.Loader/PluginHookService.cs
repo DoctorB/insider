@@ -17,6 +17,11 @@ internal sealed class PluginHookService : IInsiderHookService, IDisposable
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
     }
 
+    public IDisposable DetourNative(IntPtr target, Delegate replacement)
+    {
+        return Own(() => _inner.DetourNative(target, replacement));
+    }
+
     public IDisposable Detour(MethodBase target, Delegate replacement)
     {
         return Own(() => _inner.Detour(target, replacement));

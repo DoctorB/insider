@@ -29,7 +29,9 @@ containment, readiness and thread identity, plugin-scoped logging, pending-work
 cancellation, ordered per-pump updates, disposable update registrations,
 automatic update cleanup, dispatcher hook cleanup, and plugin-scoped directory
 creation, isolation, traversal-safe naming, ownership, and persistence after
-unload.
+unload. IL2CPP cases verify backend capability flags, complete versus incomplete
+game layouts, plugin-context bridge delivery, native-detour ownership, explicit
+main-thread rejection, and private-runtime installation and removal.
 Bootstrap coverage also parses comments, blanks, duplicate IDs, whitespace, and
 case variants from `disabled-plugins.txt`; it verifies that the matching plugin
 does not run and is not counted as failed. Installation coverage verifies that
@@ -92,6 +94,23 @@ seeded current log replaced the older `native.previous.log`.
 The fixture contains no Unity or Mono code and is never included in release
 packages.
 
+### IL2CPP bootstrap fixtures
+
+`InsiderNativeIl2CppBootstrapFixture` loads an Insider-owned module named
+`GameAssembly.dll` and a fake `hostfxr.dll`. It verifies that the native proxy
+selects IL2CPP, supplies `Insider.Il2CppHost.dll` as one self-contained managed
+application, calls `hostfxr_run_app`, and logs a successful managed bootstrap.
+
+`eng/Test-Il2CppHost.ps1` is the stronger packaged smoke. It creates a synthetic
+complete Windows x64 IL2CPP layout, installs the assembled package through the
+real CLI, and starts the same fixture process with the real redistributed
+`hostfxr`, `hostpolicy`, and CoreCLR files. It succeeds only when the managed log
+reports `UnityIl2Cpp` and a ready IL2CPP domain. The plugin then resolves the
+fake `Assembly-CSharp` image, type, method metadata, and native code pointer;
+changes `7` to `42` through a native detour; removes it; and observes the
+restored `7`. This runs in Windows CI and catches host, metadata, hook, and
+runtime packaging errors that a fake hostfxr cannot model.
+
 ### IL-hook test phase
 
 The managed test phase covers instruction replacement through `ILCursor` and
@@ -110,8 +129,8 @@ claim.
 
 The managed suite uses a minimal dynamic assembly named
 `UnityEngine.CoreModule` to verify discovery of the expected synchronization
-pump without taking a Unity dependency. Together with the hook tests, the suite
-currently contains 64 passing tests.
+pump without taking a Unity dependency. Together with the hook and IL2CPP tests,
+the suite currently contains 69 passing tests.
 
 The real-player phase proves that `Load()` runs on Insider's bootstrap thread
 and that a callback posted through `context.MainThread` later runs on Unity's
@@ -124,7 +143,8 @@ callback.
 
 `eng/Test-WindowsPackage.ps1` verifies the assembled artifact before upload. It
 checks the native bootstrap, managed core, CLI runtime files and package README;
-requires the complete hooking runtime and license notices; rejects test
+requires the complete hooking runtime, private IL2CPP CoreCLR runtime, and
+license notices; rejects test
 assemblies and source files; and runs the packaged CLI help command.
 The help smoke test also requires every plugin-management command and the
 read-only `diagnose` command to be present.
@@ -195,6 +215,11 @@ Unity, value-type constructors, complex IL control flow, anti-cheat interaction,
 or other Unity/Mono versions. Broader real-player evidence is still required
 before compatibility can move from experimental to supported.
 
+The IL2CPP packaged smoke executes a real private CoreCLR but uses a tiny fake
+`GameAssembly.dll`. It does not prove a real Unity IL2CPP player, metadata across
+Unity releases, stripped or generic game methods, native ABI correctness,
+automatic Unity proxies, main-thread dispatch, or an applied game detour.
+
 ## Run locally
 
 ```powershell
@@ -206,6 +231,7 @@ cmake --build artifacts/native-build --config Release
 ctest --test-dir artifacts/native-build --build-config Release --output-on-failure
 
 ./eng/Test-WindowsPackage.ps1 -PackageDirectory artifacts/Insider-windows-x64
+./eng/Test-Il2CppHost.ps1
 
 ./eng/Test-UnityMonoSmoke.ps1
 ```

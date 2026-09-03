@@ -12,9 +12,9 @@ for runtime method hooks.
 
 ## Current scope
 
-The first implementation target is intentionally narrow:
+The first implementation targets are intentionally narrow:
 
-- Unity games using the Mono scripting backend
+- Unity games using the Mono or IL2CPP scripting backend
 - Windows x64
 - Managed plugins loaded from `Insider/plugins`
 - A loader-owned plugin lifecycle and diagnostics
@@ -30,26 +30,31 @@ The first implementation target is intentionally narrow:
   each plugin context
 - Optional minimum Insider version metadata checked before plugin activation
 - Fixed current/previous session logs with no logging framework or configuration
+- An essential IL2CPP backend with a private CoreCLR host, raw IL2CPP metadata
+  resolution, and loader-owned native detours
 
-IL2CPP and additional operating systems are planned as separate runtime
-backends. They are not supported yet.
+Managed detours, IL hooks, and Unity main-thread callbacks currently apply to
+the Mono backend. IL2CPP intentionally starts with native hooks and does not yet
+provide automatic Unity type proxies or a main-thread pump. Additional operating
+systems and architectures remain outside the current target.
 
 ## Architecture
 
 ```text
 Unity game
   -> Insider native version.dll proxy
-  -> Insider.Bootstrap
+  -> Mono embedding API or private IL2CPP CoreCLR host
+  -> Insider.Bootstrap / Insider.Il2CppHost
   -> Insider.Loader
   -> managed plugins
   -> runtime hooking backend
 ```
 
 The first native bootstrap is owned by Insider. On Windows x64 it proxies the
-system `version.dll`, waits for Unity's Mono runtime, and invokes the managed
-entry point through Mono's embedding API. Insider does not depend on BepInEx or
-another mod loader. A Doorstop-compatible managed adapter remains available for
-integration testing and migration only.
+system `version.dll`, then enters Unity Mono through its embedding API or starts
+the packaged private CoreCLR runtime for an IL2CPP player. Insider does not
+depend on BepInEx or another mod loader. A Doorstop-compatible managed adapter
+remains available for integration testing and migration only.
 
 See [docs/architecture.md](docs/architecture.md) for the component boundaries
 and [docs/compatibility.md](docs/compatibility.md) for the support policy. The
@@ -58,7 +63,8 @@ fixture and what still requires a real Unity player. Plugin authors should start
 with the [plugin development guide](docs/plugin-development.md) and use the
 [managed hooking guide](docs/hooking.md) for signatures, lifecycle rules, and
 complete examples. Unity-facing work should use the
-[main-thread guide](docs/main-thread.md).
+[main-thread guide](docs/main-thread.md). Native IL2CPP plugins should read the
+[essential IL2CPP guide](docs/il2cpp.md) before resolving any address.
 
 ## Repository layout
 
@@ -114,16 +120,19 @@ and `insider.log`; the immediately preceding session is retained as
 so retention stays bounded without configuration. See the
 [logging guide](docs/logging.md) for ownership and failure behavior.
 
-Installation is deliberately limited to detected Windows x64 Unity/Mono games.
+Installation is deliberately limited to complete detected Windows x64
+Unity/Mono or Unity/IL2CPP games.
 It records hashes in `Insider/install.json`, never removes plugins or logs, and
 never removes plugin configuration or data. It refuses to uninstall modified
 loader files unless `--force` is explicitly used. The pre-alpha CLI package
-requires the .NET 10 runtime.
+requires the .NET 10 runtime; IL2CPP games use the separate private runtime
+already included in the package.
 
 ## Build
 
 The maintained projects use the .NET 10 SDK. The plugin contracts and managed
-loader target .NET Standard 2.0 for compatibility with modern Unity Mono games.
+loader target .NET Standard 2.0 for compatibility with modern Unity Mono and
+the private IL2CPP CoreCLR host.
 
 ```powershell
 dotnet build Insider.slnx --configuration Release
@@ -140,10 +149,14 @@ ctest --test-dir artifacts/native-build --build-config Release --output-on-failu
 
 The Windows artifact is checked after assembly for required runtime files,
 license notices, accidental test/source content, and a working packaged CLI.
+CI also installs that artifact into a synthetic IL2CPP game and executes the
+real packaged `hostfxr`/CoreCLR bootstrap through plugin discovery, IL2CPP
+metadata resolution, native detour application, and live restoration.
 Run the same check locally with:
 
 ```powershell
 ./eng/Test-WindowsPackage.ps1 -PackageDirectory artifacts/Insider-windows-x64
+./eng/Test-Il2CppHost.ps1
 ```
 
 A local smoke fixture builds and launches a real Unity 2022.3 Windows x64
@@ -251,11 +264,14 @@ the resulting states and dependency problems without launching Unity.
 See the [plugin development guide](docs/plugin-development.md#disabling-plugins)
 for the complete behavior.
 
-The hooking API is deliberately small. Plugins can apply a managed method or
-instance-constructor detour through
+The hooking API is deliberately small. On Mono, plugins can apply a managed
+method or instance-constructor detour through
 `context.Hooks.Detour(target, replacement)`, or rewrite a target's managed IL
-through `context.Hooks.ModifyIl(target, manipulator)`. The returned handle
-removes either hook early when disposed; Insider also removes every remaining
+through `context.Hooks.ModifyIl(target, manipulator)`. On IL2CPP,
+`context.Il2Cpp` resolves verified native methods and
+`context.Hooks.DetourNative(address, replacement)` hooks them. Check the
+`context.Runtime` capability flags before choosing a path. The returned handle
+removes its hook early when disposed; Insider also removes every remaining
 plugin-owned hook automatically after `Unload()` or a failed `Load()`. A
 replacement may accept an original-call delegate first, allowing it to wrap
 rather than completely replace game behavior. Multiple detours may share a
@@ -269,15 +285,18 @@ hook targets fail closed because the backend does not support them. IL
 manipulators receive MonoMod's complete `ILContext`, must match defensively, and
 may be invoked again when a target's IL-hook chain is rebuilt. Removal handles
 are idempotent, and backend failures use the stable `InsiderHookException`
-boundary. The [runtime hooking guide](docs/hooking.md) documents detour
-signatures, IL patterns, lifecycle, and examples.
+boundary. The [runtime hooking guide](docs/hooking.md) documents shared
+lifecycle rules, while [docs/il2cpp.md](docs/il2cpp.md) covers native signatures
+and the essential IL2CPP API.
 
-`Load()` runs on Insider's bootstrap thread, not Unity's main thread. Schedule
-one Unity-facing callback with `context.MainThread.Post(...)`, or register short
-per-frame work with `context.MainThread.RegisterUpdate(...)`. Update
+`Load()` runs on Insider's bootstrap thread, not Unity's main thread. When
+`context.Runtime.SupportsMainThread` is true, schedule one Unity-facing callback
+with `context.MainThread.Post(...)`, or register short per-frame work with
+`context.MainThread.RegisterUpdate(...)`. Update
 registrations return an `IDisposable` for early removal; queued and repeating
 callbacks belong to the plugin and are invalidated when it unloads. See the
 [Unity main-thread guide](docs/main-thread.md) for lifecycle rules and examples.
+The essential IL2CPP backend reports this capability as unavailable.
 
 Messages written through `context.Logger` are automatically prefixed with the
 plugin ID, keeping the shared game log readable without extra logging APIs.

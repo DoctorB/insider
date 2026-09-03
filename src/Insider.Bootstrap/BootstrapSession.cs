@@ -50,7 +50,8 @@ internal sealed class BootstrapSession : IDisposable
             var runtime = RuntimeDetector.Detect(normalizedGameDirectory);
             logger.Info($"Insider bootstrap started: {runtime.Backend}, {runtime.OperatingSystem}, {runtime.Architecture}.");
 
-            if (runtime.Backend != InsiderRuntimeBackend.UnityMono)
+            if (runtime.Backend != InsiderRuntimeBackend.UnityMono &&
+                runtime.Backend != InsiderRuntimeBackend.UnityIl2Cpp)
             {
                 logger.Warn($"Runtime backend '{runtime.Backend}' is not supported by this build; no plugins were loaded.");
                 return new BootstrapSessionResult(
@@ -65,14 +66,28 @@ internal sealed class BootstrapSession : IDisposable
             }
 
             var hooks = new RuntimeDetourHookService();
-            _mainThread = new UnityMonoMainThread(hooks, logger);
+            IInsiderIl2CppRuntime? il2Cpp = null;
+            IInsiderMainThread mainThread;
+            if (runtime.Backend == InsiderRuntimeBackend.UnityMono)
+            {
+                _mainThread = new UnityMonoMainThread(hooks, logger);
+                mainThread = _mainThread;
+            }
+            else
+            {
+                logger.Info("Waiting for the IL2CPP domain and native metadata API.");
+                il2Cpp = Il2CppRuntime.WaitUntilReady(TimeSpan.FromSeconds(60));
+                mainThread = new UnavailableMainThread();
+                logger.Info("IL2CPP native metadata and detour services are ready.");
+            }
 
             var context = new BootstrapContext(
                 normalizedGameDirectory,
                 insiderDirectory,
                 logger,
                 runtime,
-                _mainThread,
+                il2Cpp,
+                mainThread,
                 hooks);
             _pluginHost = new PluginHost(context);
 
@@ -85,7 +100,7 @@ internal sealed class BootstrapSession : IDisposable
             }
 
             var results = _pluginHost.LoadDirectory(pluginDirectory, disabledPluginIds);
-            _mainThread.Start();
+            _mainThread?.Start();
             var loaded = 0;
             var failed = 0;
 
