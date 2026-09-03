@@ -9,6 +9,10 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Read-only `insider diagnose <game.exe>` reporting the Unity target,
+  installation integrity, discovered and disabled plugins, dependency states,
+  version mismatches, duplicates, cycles, and readable problems without
+  launching the game or activating plugin lifecycle code.
 - Initial repository structure and project governance.
 - Managed plugin contracts and chainloader foundation.
 - Unity runtime inspection CLI.

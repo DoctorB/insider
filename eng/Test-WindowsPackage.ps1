@@ -75,6 +75,7 @@ foreach ($entry in $thirdPartyHashes.GetEnumerator()) {
 
 $forbiddenNames = @(
     "Insider.Tests.dll",
+    "Insider.DiagnosticFixture.dll",
     "Insider.PluginFixture.dll",
     "Insider.DependencyFixture.dll"
 )
@@ -97,6 +98,7 @@ if ($LASTEXITCODE -ne 0) {
 $helpText = $helpOutput -join [Environment]::NewLine
 $requiredHelpText = @(
     "Insider Mod Loader CLI",
+    "diagnose <game.exe>",
     "plugins disable",
     "plugins enable",
     "plugins disabled"

@@ -9,7 +9,12 @@ Install:
 
 Verify or remove:
   dotnet insider.dll status "C:\Path\Game.exe"
+  dotnet insider.dll diagnose "C:\Path\Game.exe"
   dotnet insider.dll uninstall "C:\Path\Game.exe"
+
+diagnose is read-only. It reports the detected backend, installation integrity,
+plugins, disabled IDs, dependencies, and readable problems without starting the
+game or activating plugin code.
 
 Plugins belong in <game>\Insider\plugins.
 Managed plugin dependencies belong in <game>\Insider\plugins\dependencies.

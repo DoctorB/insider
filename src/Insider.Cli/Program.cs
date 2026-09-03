@@ -34,6 +34,7 @@ internal static class Program
 
         return args[0].ToLowerInvariant() switch
         {
+            "diagnose" => RunDiagnose(args),
             "inspect" => RunInspect(args),
             "install" => RunInstall(args),
             "status" => RunStatus(args),
@@ -41,6 +42,18 @@ internal static class Program
             "plugins" => RunPlugins(args),
             _ => UnknownCommand(args[0]),
         };
+    }
+
+    private static int RunDiagnose(string[] args)
+    {
+        if (args.Length != 2)
+        {
+            throw new InsiderInstallationException("Usage: insider diagnose <path-to-game-executable>");
+        }
+
+        var report = GameDiagnoser.Diagnose(args[1]);
+        PrintDiagnosis(report);
+        return report.HasProblems ? 1 : 0;
     }
 
     private static int RunInspect(string[] args)
@@ -223,6 +236,85 @@ internal static class Program
         }
     }
 
+    private static void PrintDiagnosis(GameDiagnosticReport report)
+    {
+        Console.WriteLine("Insider diagnostics");
+        Console.WriteLine();
+        Console.WriteLine("Game");
+        Console.WriteLine($"  Executable:   {report.Inspection.ExecutablePath}");
+        Console.WriteLine($"  Unity layout: {report.Inspection.IsUnityGame}");
+        Console.WriteLine($"  Backend:      {report.Inspection.Backend}");
+        Console.WriteLine($"  Architecture: {report.Inspection.Architecture}");
+        Console.WriteLine($"  Supported:    {report.Inspection.IsCurrentTarget}");
+        Console.WriteLine();
+        Console.WriteLine("Installation");
+        Console.WriteLine($"  State:        {report.Installation.State}");
+        Console.WriteLine($"  Directory:    {report.Installation.GameDirectory}");
+        Console.WriteLine();
+        Console.WriteLine("Plugins");
+        Console.WriteLine($"  Directory:    {report.PluginDirectory}");
+        Console.WriteLine($"  Found:        {report.Plugins.Count}");
+        Console.WriteLine($"  Disabled IDs: {report.DisabledPluginIds.Count}");
+
+        if (report.Plugins.Count == 0)
+        {
+            Console.WriteLine("  No Insider plugins found.");
+        }
+
+        foreach (var plugin in report.Plugins)
+        {
+            Console.WriteLine($"  [{plugin.State}] {plugin.Id} {plugin.Version} - {plugin.Name}");
+            Console.WriteLine($"    Assembly: {plugin.AssemblyPath}");
+            foreach (var dependency in plugin.Dependencies)
+            {
+                var requirement = dependency.MinimumVersion is null
+                    ? dependency.Id
+                    : $"{dependency.Id} >= {dependency.MinimumVersion}";
+                var kind = dependency.Optional ? "optional" : "required";
+                Console.WriteLine($"    Dependency: {requirement} ({kind}) - {dependency.Status}");
+            }
+
+            foreach (var issue in plugin.Issues)
+            {
+                Console.WriteLine($"    Problem: {issue}");
+            }
+        }
+
+        if (report.DisabledPluginIds.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Disabled plugin IDs");
+            foreach (var pluginId in report.DisabledPluginIds)
+            {
+                Console.WriteLine($"  {pluginId}");
+            }
+        }
+
+        if (report.Notes.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Notes");
+            foreach (var note in report.Notes)
+            {
+                Console.WriteLine($"  {note}");
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"Problems ({report.Problems.Count})");
+        if (report.Problems.Count == 0)
+        {
+            Console.WriteLine("  None. The detected configuration is ready for the current Insider build.");
+        }
+        else
+        {
+            foreach (var problem in report.Problems)
+            {
+                Console.WriteLine($"  {problem}");
+            }
+        }
+    }
+
     private static int UnknownCommand(string command)
     {
         Console.Error.WriteLine($"Unknown command '{command}'.");
@@ -235,6 +327,7 @@ internal static class Program
         Console.WriteLine("Insider Mod Loader CLI (pre-alpha)");
         Console.WriteLine();
         Console.WriteLine("Commands:");
+        Console.WriteLine("  diagnose <game.exe>                        Check game, installation, plugins, and dependencies.");
         Console.WriteLine("  inspect <game.exe>                         Inspect Unity backend and architecture.");
         Console.WriteLine("  install <game.exe> [--bundle <directory>] Install the Windows x64 bundle.");
         Console.WriteLine("  status <game.exe>                          Verify installed files and hashes.");

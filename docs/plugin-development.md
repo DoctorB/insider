@@ -150,6 +150,30 @@ metadata discovery necessarily happens first. Remove such a DLL from
 `config` and `data` directory trees during uninstall. There is deliberately no
 hot reload, wildcard, per-file switch, or separate configuration language.
 
+## Diagnosing the installed plugin set
+
+Run the read-only diagnostic before starting a game after plugin changes:
+
+```powershell
+dotnet insider.dll diagnose "C:\Games\Example\Example.exe"
+```
+
+Each discovered plugin is marked `Ready`, `Disabled`, or `Problem`. Required and
+optional dependencies are listed with their installed version and status. The
+final problem list includes damaged loader files, unsupported Unity targets,
+unreadable assemblies, invalid metadata or versions, duplicate IDs, missing or
+disabled requirements, minimum-version mismatches, and required cycles. A stale
+ID in `disabled-plugins.txt` is shown as a note because it does not prevent the
+remaining plugins from loading.
+
+The command loads assemblies only into a temporary metadata-inspection context.
+It never creates plugin instances, calls `Load()` or `Unload()`, modifies the
+installation, or launches the game. Exit code `0` means no structural problem
+was found; exit code `1` means the report contains at least one problem. A clean
+result is not a promise that game-specific plugin code will succeed at runtime.
+
+See [CLI diagnostics](diagnostics.md) for a complete example.
+
 ## Version policy
 
 Versions use exactly three non-negative integers: `MAJOR.MINOR.PATCH`. Leading

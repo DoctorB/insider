@@ -99,6 +99,13 @@ preserve user comments and unrelated lines, use a same-directory atomic replace,
 and never attempt to change the state of a running game. Uninstall preserves
 plugin assemblies, logs, and the plugin-owned configuration and data trees.
 
+The read-only `diagnose` command composes runtime inspection, manifest
+verification, the disable list, and an isolated metadata scan of the plugin
+directory. The scan shares the public plugin metadata contract but never creates
+plugin instances or calls lifecycle methods. It resolves required dependency
+states, minimum versions, duplicates, and cycles before rendering one report;
+the game executable is never started.
+
 ### Insider.Hooking
 
 The first runtime backend implements `IInsiderHookService` through
