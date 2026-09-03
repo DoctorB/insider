@@ -194,6 +194,9 @@ file. Insider automatically prefixes every plugin message with its declared ID:
 ```
 
 The prefix is added by the loader; plugins should not add it themselves.
+Messages go to the current `Insider/logs/insider.log`. On the next game start,
+that file becomes `insider.previous.log`; only one previous session is retained.
+See the [logging guide](logging.md) for file ownership and failure behavior.
 
 ## Managed detours
 
@@ -382,7 +385,7 @@ tree; either case can create a duplicate simple name and fail the scan.
 
 A missing dependency fails only the affected plugin when the runtime requests
 it. All resolution decisions and errors are recorded in
-`Insider/logs/insider.log`.
+the current `Insider/logs/insider.log`.
 
 If the game already contains the exact requested assembly identity, the runtime
 may reuse that resident copy. A different loaded identity with the same simple

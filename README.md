@@ -28,6 +28,7 @@ The first implementation target is intentionally narrow:
 - An optional text list for disabling plugins by ID without moving their DLLs
 - Loader-assigned plugin, configuration, and data directories exposed through
   each plugin context
+- Fixed current/previous session logs with no logging framework or configuration
 
 IL2CPP and additional operating systems are planned as separate runtime
 backends. They are not supported yet.
@@ -105,6 +106,12 @@ and disabled plugins, required and optional dependencies, version mismatches,
 duplicate IDs, and dependency cycles. It does not start the game or call plugin
 `Load()` methods. See the [CLI diagnostics guide](docs/diagnostics.md) for output
 and exit-code details.
+
+Runtime logs live under `Insider/logs`. The active process writes `native.log`
+and `insider.log`; the immediately preceding session is retained as
+`native.previous.log` and `insider.previous.log`. Older sessions are discarded,
+so retention stays bounded without configuration. See the
+[logging guide](docs/logging.md) for ownership and failure behavior.
 
 Installation is deliberately limited to detected Windows x64 Unity/Mono games.
 It records hashes in `Insider/install.json`, never removes plugins or logs, and

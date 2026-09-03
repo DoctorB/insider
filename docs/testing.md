@@ -52,9 +52,10 @@ detection, directory creation, assembly discovery, plugin context delivery,
 the actual entry-assembly directory, isolated plugin configuration and data
 paths, exact dependency resolution, load and unload callbacks, failure-closed
 behavior for missing or conflicting dependencies and unsupported runtimes, and
-persistent bootstrap logging. A separate case proves that a public host
-dependency can be resolved from `Insider/core` without being copied into the
-plugin dependency tree.
+persistent bootstrap logging. It also verifies that a new bootstrap session
+moves the completed managed log to the fixed previous-session file. A separate
+case proves that a public host dependency can be resolved from `Insider/core`
+without being copied into the plugin dependency tree.
 
 The fixture is test-only and is never included in release packages.
 
@@ -82,6 +83,10 @@ queries to verify polling and retry behavior, and return a managed exception
 from `mono_runtime_invoke` to verify that the bootstrap fails closed and writes
 the expected diagnostic instead of crashing the host process.
 
+Every native bootstrap scenario seeds an existing current and previous log. It
+then verifies that the current log contains only the new process and that the
+seeded current log replaced the older `native.previous.log`.
+
 The fixture contains no Unity or Mono code and is never included in release
 packages.
 
@@ -104,7 +109,7 @@ claim.
 The managed suite uses a minimal dynamic assembly named
 `UnityEngine.CoreModule` to verify discovery of the expected synchronization
 pump without taking a Unity dependency. Together with the hook tests, the suite
-currently contains 60 passing tests.
+currently contains 61 passing tests.
 
 The real-player phase proves that `Load()` runs on Insider's bootstrap thread
 and that a callback posted through `context.MainThread` later runs on Unity's

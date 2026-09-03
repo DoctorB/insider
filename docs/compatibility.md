@@ -95,6 +95,11 @@ the same simple assembly name. Duplicate candidates, conflicting versions, and
 conflicts with an already loaded game assembly fail closed and are written to
 `Insider/logs/insider.log`.
 
+The current managed and native logs are replaced on every process start after
+their prior contents are moved to `insider.previous.log` and
+`native.previous.log`. Insider retains no older sessions and exposes no logging
+configuration. Rotation failures are non-fatal.
+
 When the game has already loaded the exact requested identity, the runtime may
 reuse that resident assembly. Insider cannot replace or independently unload it.
 

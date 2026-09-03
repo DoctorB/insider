@@ -11,7 +11,13 @@ internal sealed class FileLogger : IInsiderLogger
 
     public FileLogger(string path)
     {
-        _path = path ?? throw new ArgumentNullException(nameof(path));
+        _path = Path.GetFullPath(path ?? throw new ArgumentNullException(nameof(path)));
+
+        var rotationFailure = TryRotateCurrentLog(_path);
+        if (rotationFailure is not null)
+        {
+            Log(InsiderLogLevel.Warning, rotationFailure);
+        }
     }
 
     public void Log(InsiderLogLevel level, string message, Exception? exception = null)
@@ -41,6 +47,34 @@ internal sealed class FileLogger : IInsiderLogger
                     // Logging is best effort inside the game process.
                 }
             }
+        }
+    }
+
+    private static string? TryRotateCurrentLog(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        var directory = Path.GetDirectoryName(path) ?? string.Empty;
+        var previousPath = Path.Combine(
+            directory,
+            Path.GetFileNameWithoutExtension(path) + ".previous" + Path.GetExtension(path));
+
+        try
+        {
+            if (File.Exists(previousPath))
+            {
+                File.Delete(previousPath);
+            }
+
+            File.Move(path, previousPath);
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return $"Could not rotate '{path}' to '{previousPath}': {exception.Message}";
         }
     }
 }

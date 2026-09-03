@@ -133,8 +133,15 @@ int wmain(int argument_count, wchar_t** arguments)
 
     const auto proxy_path = std::filesystem::path(arguments[3]);
     const auto log_path = proxy_path.parent_path() / L"Insider" / L"logs" / L"native.log";
+    const auto previous_log_path = proxy_path.parent_path() / L"Insider" / L"logs" / L"native.previous.log";
     std::error_code delete_error;
-    std::filesystem::remove(log_path, delete_error);
+    std::filesystem::create_directories(log_path.parent_path(), delete_error);
+    {
+        std::ofstream previous_log(previous_log_path, std::ios::binary | std::ios::trunc);
+        previous_log << "stale previous native log";
+        std::ofstream current_log(log_path, std::ios::binary | std::ios::trunc);
+        current_log << "previous native session marker";
+    }
 
     const auto proxy = LoadLibraryW(arguments[3]);
     if (proxy == nullptr)
@@ -206,6 +213,24 @@ int wmain(int argument_count, wchar_t** arguments)
     {
         std::cerr << "Expected native log message was not written." << std::endl;
         return 1;
+    }
+
+    if (!WaitForLogMessage(previous_log_path, "previous native session marker"))
+    {
+        std::cerr << "The previous native log was not rotated." << std::endl;
+        return 1;
+    }
+
+    {
+        std::ifstream current_log(log_path, std::ios::binary);
+        const std::string contents(
+            (std::istreambuf_iterator<char>(current_log)),
+            std::istreambuf_iterator<char>());
+        if (contents.find("previous native session marker") != std::string::npos)
+        {
+            std::cerr << "The current native log still contains the previous session." << std::endl;
+            return 1;
+        }
     }
 
     std::cout << "Native bootstrap scenario completed: ";
