@@ -74,6 +74,21 @@ compares IDs without case sensitivity. Duplicate entries have no additional
 effect. The file is optional and is read once during bootstrap; changing it
 requires restarting the game.
 
+The packaged CLI manages the same file by stable plugin ID:
+
+```powershell
+dotnet insider.dll plugins disable "C:\Games\Example\Example.exe" com.example.my-plugin
+dotnet insider.dll plugins disabled "C:\Games\Example\Example.exe"
+dotnet insider.dll plugins enable "C:\Games\Example\Example.exe" com.example.my-plugin
+```
+
+`disable` and `enable` are idempotent. They preserve comments, blank lines, and
+unrelated entries; `enable` removes every case-insensitive occurrence of the
+requested ID. `disabled` prints a de-duplicated, case-insensitively sorted view.
+The commands require an Insider installation but remain available when its
+status is damaged, so a problematic plugin can still be disabled before the
+installation is repaired. A changed list affects only the next game start.
+
 A disabled plugin is still discovered so Insider can read its metadata, but no
 instance is created and `Load()` is not called. It is logged as skipped and does
 not count as a load failure. A plugin with a required dependency on a disabled

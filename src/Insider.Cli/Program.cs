@@ -24,7 +24,7 @@ internal static class Program
         }
     }
 
-    private static int Run(string[] args)
+    internal static int Run(string[] args)
     {
         if (args.Length == 0 || args[0] is "--help" or "-h" or "help")
         {
@@ -38,6 +38,7 @@ internal static class Program
             "install" => RunInstall(args),
             "status" => RunStatus(args),
             "uninstall" => RunUninstall(args),
+            "plugins" => RunPlugins(args),
             _ => UnknownCommand(args[0]),
         };
     }
@@ -124,6 +125,79 @@ internal static class Program
         return 0;
     }
 
+    private static int RunPlugins(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            throw new InsiderInstallationException(
+                "Usage: insider plugins <disable|enable|disabled> <path-to-game-executable> [plugin-id]");
+        }
+
+        var manager = new DisabledPluginManager();
+        return args[1].ToLowerInvariant() switch
+        {
+            "disable" => RunPluginDisable(args, manager),
+            "enable" => RunPluginEnable(args, manager),
+            "disabled" => RunPluginsDisabled(args, manager),
+            _ => throw new InsiderInstallationException(
+                $"Unknown plugins command '{args[1]}'. Expected disable, enable, or disabled."),
+        };
+    }
+
+    private static int RunPluginDisable(string[] args, DisabledPluginManager manager)
+    {
+        if (args.Length != 4)
+        {
+            throw new InsiderInstallationException(
+                "Usage: insider plugins disable <path-to-game-executable> <plugin-id>");
+        }
+
+        var changed = manager.Disable(args[2], args[3]);
+        Console.WriteLine(changed
+            ? $"Disabled plugin '{args[3].Trim()}'. Restart the game to apply the change."
+            : $"Plugin '{args[3].Trim()}' is already disabled.");
+        return 0;
+    }
+
+    private static int RunPluginEnable(string[] args, DisabledPluginManager manager)
+    {
+        if (args.Length != 4)
+        {
+            throw new InsiderInstallationException(
+                "Usage: insider plugins enable <path-to-game-executable> <plugin-id>");
+        }
+
+        var changed = manager.Enable(args[2], args[3]);
+        Console.WriteLine(changed
+            ? $"Enabled plugin '{args[3].Trim()}'. Restart the game to apply the change."
+            : $"Plugin '{args[3].Trim()}' is not disabled.");
+        return 0;
+    }
+
+    private static int RunPluginsDisabled(string[] args, DisabledPluginManager manager)
+    {
+        if (args.Length != 3)
+        {
+            throw new InsiderInstallationException(
+                "Usage: insider plugins disabled <path-to-game-executable>");
+        }
+
+        var disabled = manager.GetDisabled(args[2]);
+        if (disabled.Count == 0)
+        {
+            Console.WriteLine("No plugins are disabled.");
+            return 0;
+        }
+
+        Console.WriteLine($"Disabled plugins ({disabled.Count}):");
+        foreach (var pluginId in disabled)
+        {
+            Console.WriteLine($"  {pluginId}");
+        }
+
+        return 0;
+    }
+
     private static void PrintInspection(UnityGameInspection result)
     {
         Console.WriteLine($"Executable:   {result.ExecutablePath}");
@@ -165,5 +239,8 @@ internal static class Program
         Console.WriteLine("  install <game.exe> [--bundle <directory>] Install the Windows x64 bundle.");
         Console.WriteLine("  status <game.exe>                          Verify installed files and hashes.");
         Console.WriteLine("  uninstall <game.exe> [--force]             Remove Insider and restore version.dll.");
+        Console.WriteLine("  plugins disable <game.exe> <plugin-id>      Disable a plugin on the next game start.");
+        Console.WriteLine("  plugins enable <game.exe> <plugin-id>       Enable a plugin on the next game start.");
+        Console.WriteLine("  plugins disabled <game.exe>                 List disabled plugin IDs.");
     }
 }

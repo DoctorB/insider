@@ -89,3 +89,5 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   managed coverage, real Unity player verification, and usage documentation.
 - Optional `Insider/config/disabled-plugins.txt` filtering by plugin ID, with
   deterministic dependency diagnostics and preservation during uninstall.
+- CLI commands to list, disable, and enable exact plugin IDs through the same
+  disable list, with idempotent atomic updates that preserve user comments.

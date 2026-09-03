@@ -84,6 +84,18 @@ To remove Insider and restore a pre-existing root `version.dll`:
 dotnet insider.dll uninstall "C:\Games\Example\Example.exe"
 ```
 
+Installed plugins can be disabled and enabled by stable ID without moving their
+DLLs:
+
+```powershell
+dotnet insider.dll plugins disable "C:\Games\Example\Example.exe" com.example.my-plugin
+dotnet insider.dll plugins disabled "C:\Games\Example\Example.exe"
+dotnet insider.dll plugins enable "C:\Games\Example\Example.exe" com.example.my-plugin
+```
+
+These commands update `Insider/config/disabled-plugins.txt`; changes take effect
+the next time the game starts.
+
 Installation is deliberately limited to detected Windows x64 Unity/Mono games.
 It records hashes in `Insider/install.json`, never removes plugins or logs, and
 never removes user configuration. It refuses to uninstall modified loader files
@@ -180,6 +192,9 @@ differences are ignored. Disabled plugins are discovered but never activated and
 do not count as load failures. A plugin whose required dependency is disabled
 fails with an explicit diagnostic; optional dependencies remain optional. The
 file is read once at startup, has no hot reload, and is preserved by uninstall.
+The `plugins disable`, `plugins enable`, and `plugins disabled` CLI commands
+manage the same file, preserve comments and unrelated entries, and are safe to
+repeat.
 See the [plugin development guide](docs/plugin-development.md#disabling-plugins)
 for the complete behavior.
 

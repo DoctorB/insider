@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using ReflectionEmit = System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Insider.Bootstrap;
@@ -12,6 +11,8 @@ using Insider.Installation;
 using Insider.Loader;
 using Mono.Cecil.Cil;
 using MonoMod.Cil;
+using CliProgram = Insider.Cli.Program;
+using ReflectionEmit = System.Reflection.Emit;
 
 namespace Insider.Tests;
 
@@ -76,6 +77,7 @@ internal static class Program
             ("fails closed on an unsupported managed runtime", FailsClosedOnUnsupportedManagedRuntime),
             ("installs and uninstalls without losing an existing proxy", InstallsAndRestoresExistingProxy),
             ("refuses to remove modified installation files", RefusesToRemoveModifiedFiles),
+            ("manages disabled plugins through the CLI", ManagesDisabledPluginsThroughCli),
             ("dispatches Unity main-thread callbacks", DispatchesUnityMainThreadCallbacks),
         };
 
@@ -1037,6 +1039,70 @@ internal static class Program
 
         installer.Uninstall(fixture.GameExecutable, force: true);
         Assert(!File.Exists(modifiedPath), "Forced uninstall did not remove the modified file.");
+    }
+
+    private static void ManagesDisabledPluginsThroughCli()
+    {
+        using var fixture = InstallationFixture.Create(withExistingProxy: false);
+        new InsiderInstaller().Install(fixture.GameExecutable, fixture.BundleDirectory);
+
+        var disabledPath = Path.Combine(
+            fixture.GameDirectory,
+            DisabledPluginManager.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+        File.WriteAllLines(
+            disabledPath,
+            new[]
+            {
+                "# Keep this explanation",
+                "dev.insider.tests.zeta",
+                " DEV.INSIDER.TESTS.ZETA ",
+                string.Empty,
+                "dev.insider.tests.alpha",
+            });
+
+        Assert(
+            CliProgram.Run(new[] { "plugins", "disabled", fixture.GameExecutable }) == 0,
+            "The disabled-plugin listing command failed.");
+
+        var unchanged = File.ReadAllText(disabledPath);
+        Assert(
+            CliProgram.Run(new[] { "plugins", "disable", fixture.GameExecutable, "DEV.INSIDER.TESTS.ALPHA" }) == 0,
+            "Disabling an already-disabled plugin failed.");
+        Assert(File.ReadAllText(disabledPath) == unchanged, "An idempotent disable rewrote the user file.");
+
+        Assert(
+            CliProgram.Run(new[] { "plugins", "disable", fixture.GameExecutable, "dev.insider.tests.middle" }) == 0,
+            "Disabling a plugin failed.");
+        var afterDisable = File.ReadAllText(disabledPath);
+        Assert(afterDisable.Contains("# Keep this explanation", StringComparison.Ordinal), "Disabling a plugin removed a comment.");
+        Assert(afterDisable.Contains("dev.insider.tests.middle", StringComparison.Ordinal), "The plugin ID was not added.");
+
+        Assert(
+            CliProgram.Run(new[] { "plugins", "enable", fixture.GameExecutable, "DEV.INSIDER.TESTS.ZETA" }) == 0,
+            "Enabling a plugin failed.");
+        var afterEnable = File.ReadAllLines(disabledPath);
+        Assert(afterEnable.Contains("# Keep this explanation"), "Enabling a plugin removed a comment.");
+        Assert(
+            !afterEnable.Any(line => string.Equals(line.Trim(), "dev.insider.tests.zeta", StringComparison.OrdinalIgnoreCase)),
+            "Enabling a plugin left a case-insensitive duplicate in the list.");
+
+        var unchangedAfterEnable = File.ReadAllText(disabledPath);
+        Assert(
+            CliProgram.Run(new[] { "plugins", "enable", fixture.GameExecutable, "dev.insider.tests.zeta" }) == 0,
+            "Enabling an already-enabled plugin failed.");
+        Assert(File.ReadAllText(disabledPath) == unchangedAfterEnable, "An idempotent enable rewrote the user file.");
+
+        var disabled = new DisabledPluginManager().GetDisabled(fixture.GameExecutable);
+        Assert(
+            disabled.SequenceEqual(new[] { "dev.insider.tests.alpha", "dev.insider.tests.middle" }),
+            "The disabled-plugin list was not normalized and sorted.");
+
+        AssertThrows<InsiderInstallationException>(() =>
+            CliProgram.Run(new[] { "plugins", "disable", fixture.GameExecutable, "# invalid" }));
+
+        using var notInstalled = InstallationFixture.Create(withExistingProxy: false);
+        AssertThrows<InsiderInstallationException>(() =>
+            CliProgram.Run(new[] { "plugins", "disabled", notInstalled.GameExecutable }));
     }
 
     private static void DispatchesUnityMainThreadCallbacks()
